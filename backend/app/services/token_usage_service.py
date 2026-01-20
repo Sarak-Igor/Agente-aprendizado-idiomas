@@ -19,27 +19,32 @@ class TokenUsageService:
     
     def record_usage(
         self,
-        user_id,
         service: str,
         model: str,
         input_tokens: int = 0,
         output_tokens: int = 0,
         total_tokens: Optional[int] = None,
-        requests: int = 1
+        requests: int = 1,
+        user_id = None
     ):
         """
         Registra uso de tokens para um modelo específico
         
         Args:
-            user_id: ID do usuário
             service: Nome do serviço ('gemini', 'openrouter', 'groq', 'together')
             model: Nome do modelo usado
             input_tokens: Tokens de entrada
             output_tokens: Tokens de saída
             total_tokens: Total de tokens (se None, calcula como input + output)
             requests: Número de requisições (padrão 1)
+            user_id: ID do usuário (opcional)
         """
         try:
+            # Se user_id não fornecido, não registra (mas não falha)
+            if user_id is None:
+                logger.debug(f"Uso de tokens não registrado (user_id não fornecido): {service}/{model} - {input_tokens + output_tokens} tokens")
+                return
+            
             if total_tokens is None:
                 total_tokens = input_tokens + output_tokens
             

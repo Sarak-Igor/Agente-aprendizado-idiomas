@@ -4,6 +4,7 @@ Interface comum para diferentes provedores
 """
 from abc import ABC, abstractmethod
 from typing import Optional
+from datetime import datetime
 import logging
 
 logger = logging.getLogger(__name__)
@@ -96,7 +97,8 @@ class OpenRouterLLMService(LLMService):
                                     input_tokens=input_tokens,
                                     output_tokens=output_tokens,
                                     total_tokens=total_tokens if total_tokens > 0 else None,
-                                    requests=1
+                                    requests=1,
+                                    user_id=None
                                 )
                             except Exception as e:
                                 logger.debug(f"Erro ao registrar tokens do OpenRouter: {e}")
@@ -180,7 +182,8 @@ class GroqLLMService(LLMService):
                                     input_tokens=input_tokens,
                                     output_tokens=output_tokens,
                                     total_tokens=total_tokens if total_tokens > 0 else None,
-                                    requests=1
+                                    requests=1,
+                                    user_id=None
                                 )
                             except Exception as e:
                                 logger.debug(f"Erro ao registrar tokens do Groq: {e}")
@@ -262,7 +265,8 @@ class TogetherAILLMService(LLMService):
                                     input_tokens=input_tokens,
                                     output_tokens=output_tokens,
                                     total_tokens=total_tokens if total_tokens > 0 else None,
-                                    requests=1
+                                    requests=1,
+                                    user_id=None
                                 )
                             except Exception as e:
                                 logger.debug(f"Erro ao registrar tokens do Together AI: {e}")
@@ -296,10 +300,31 @@ class GeminiLLMService(LLMService):
         try:
             # Usa o cliente Gemini diretamente para enviar o prompt
             # Sem wrapper de tradução, apenas geração de texto
-            max_retries = 3
-            tried_models = []
+            # Tenta TODOS os modelos disponíveis antes de falhar
             
-            for attempt in range(max_retries):
+            # Filtra modelos inadequados para geração de texto
+            def is_text_generation_model(model_name: str) -> bool:
+                """Verifica se o modelo é adequado para geração de texto"""
+                model_lower = model_name.lower()
+                # Exclui modelos de embedding, veo (vídeo), computer-use, robotics, etc.
+                excluded_keywords = [
+                    'embedding', 'veo', 'computer-use', 'robotics', 
+                    'native-audio', 'tts', 'vision', 'image-generation',
+                    'exp-', 'preview-', 'lite-preview'
+                ]
+                return not any(keyword in model_lower for keyword in excluded_keywords)
+            
+            # Calcula número de tentativas baseado em modelos disponíveis
+            all_available = self.gemini_service.model_router.get_available_models()
+            text_models = [m for m in all_available if is_text_generation_model(m)]
+            max_attempts = min(len(text_models) * 2, 50)  # Tenta até 2x o número de modelos, máximo 50
+            if max_attempts < 10:
+                max_attempts = 10  # Mínimo de 10 tentativas
+            
+            tried_models = []
+            last_error = None
+            
+            for attempt in range(max_attempts):
                 # Revalida modelos se necessário
                 if self.gemini_service.model_router.should_revalidate():
                     try:
@@ -308,28 +333,91 @@ class GeminiLLMService(LLMService):
                     except Exception as e:
                         logger.debug(f"Erro ao revalidar modelos: {e}")
                 
-                # Obtém próximo modelo disponível
+                # Obtém próximo modelo disponível (excluindo os já tentados e bloqueados)
+                # Limpa bloqueios temporários expirados primeiro
+                now = datetime.now()
+                expired_blocks = [
+                    model for model, block_info in self.gemini_service.model_router.temporary_blocks.items()
+                    if block_info.get('blocked_until') and now >= block_info['blocked_until']
+                ]
+                for model in expired_blocks:
+                    if model in self.gemini_service.model_router.temporary_blocks:
+                        del self.gemini_service.model_router.temporary_blocks[model]
+                        logger.info(f"Bloqueio temporário do modelo {model} expirou")
+                
                 validated_models = self.gemini_service.model_router.get_validated_models()
                 exclude = set(tried_models)
                 exclude.update(self.gemini_service.model_router.blocked_models)
+                # Adiciona modelos bloqueados temporariamente
+                for model, block_info in self.gemini_service.model_router.temporary_blocks.items():
+                    blocked_until = block_info.get('blocked_until')
+                    if blocked_until and now < blocked_until:
+                        exclude.add(model)
                 
-                available_validated = [m for m in validated_models if m not in exclude]
+                # Tenta primeiro modelos validados (filtrados)
+                available_validated = [m for m in validated_models if m not in exclude and is_text_generation_model(m)]
                 if available_validated:
                     model_name = available_validated[0]
                 else:
-                    model_name = self.gemini_service.model_router.get_next_model(exclude_models=tried_models)
+                    # Se não há modelos validados, tenta qualquer modelo disponível (filtrado)
+                    all_models = self.gemini_service.model_router.get_available_models()
+                    text_models = [m for m in all_models if m not in exclude and is_text_generation_model(m)]
+                    if text_models:
+                        model_name = text_models[0]
+                    else:
+                        model_name = None
+                
+                # Se não há mais modelos para tentar, tenta listar modelos dinamicamente da API
+                if not model_name:
+                    logger.info("Nenhum modelo disponível na lista fixa. Tentando listar modelos dinamicamente da API...")
+                    try:
+                        # Tenta carregar modelos dinamicamente da API
+                        dynamic_models = self.gemini_service.model_router._load_available_models(
+                            self.gemini_service.client
+                        )
+                        if dynamic_models:
+                            # Filtra modelos já tentados, bloqueados e inadequados
+                            new_models = [m for m in dynamic_models if m not in exclude and is_text_generation_model(m)]
+                            if new_models:
+                                model_name = new_models[0]
+                                logger.info(f"Modelo encontrado dinamicamente: {model_name}")
+                            else:
+                                logger.warning("Nenhum modelo novo adequado encontrado na listagem dinâmica")
+                    except Exception as e:
+                        logger.debug(f"Erro ao listar modelos dinamicamente: {e}")
+                    
+                    # Se ainda não há modelo, tenta modelos não validados (filtrados)
+                    if not model_name:
+                        all_models = self.gemini_service.model_router.get_available_models()
+                        untried_models = [m for m in all_models if m not in exclude and is_text_generation_model(m)]
+                        if untried_models:
+                            model_name = untried_models[0]
+                            logger.info(f"Tentando modelo não validado: {model_name}")
+                
+                if not model_name:
+                    # Última tentativa: limpa bloqueios temporários expirados e tenta novamente
+                    logger.info("Limpa bloqueios temporários expirados e tenta novamente...")
+                    all_models = self.gemini_service.model_router.get_available_models()
+                    untried_models = [m for m in all_models if m not in exclude]
+                    if untried_models:
+                        model_name = untried_models[0]
+                        logger.info(f"Modelo disponível após limpeza de bloqueios: {model_name}")
                 
                 if not model_name:
                     blocked = self.gemini_service.model_router.get_blocked_models_list()
                     validated = self.gemini_service.model_router.get_validated_models()
+                    available = self.gemini_service.model_router.get_available_models()
                     raise Exception(
-                        f"Todos os modelos estão indisponíveis. "
-                        f"Modelos bloqueados: {blocked}. "
+                        f"Todos os modelos Gemini foram tentados e estão indisponíveis. "
+                        f"Modelos bloqueados permanentemente: {blocked}. "
                         f"Modelos validados: {validated}. "
-                        f"Verifique suas cotas de API."
+                        f"Modelos disponíveis: {available}. "
+                        f"Tentativas: {len(tried_models)}. "
+                        f"Verifique suas cotas de API ou configure outros serviços LLM como fallback."
                     )
                 
                 tried_models.append(model_name)
+                logger.debug(f"Tentativa {attempt + 1}/{max_attempts}: usando modelo {model_name}")
                 
                 try:
                     response = self.gemini_service.client.models.generate_content(
@@ -370,16 +458,20 @@ class GeminiLLMService(LLMService):
                         except:
                             pass
                         
-                        # Registra uso de tokens
+                        # Registra uso de tokens (user_id é opcional)
                         if self.gemini_service.token_usage_service and (input_tokens > 0 or output_tokens > 0 or total_tokens > 0):
-                            self.gemini_service.token_usage_service.record_usage(
-                                service='gemini',
-                                model=model_name,
-                                input_tokens=input_tokens,
-                                output_tokens=output_tokens,
-                                total_tokens=total_tokens if total_tokens > 0 else None,
-                                requests=1
-                            )
+                            try:
+                                self.gemini_service.token_usage_service.record_usage(
+                                    service='gemini',
+                                    model=model_name,
+                                    input_tokens=input_tokens,
+                                    output_tokens=output_tokens,
+                                    total_tokens=total_tokens if total_tokens > 0 else None,
+                                    requests=1,
+                                    user_id=None  # user_id não disponível neste contexto
+                                )
+                            except Exception as e:
+                                logger.debug(f"Erro ao registrar tokens (não crítico): {e}")
                         
                         # Remove aspas se presentes
                         result = result.strip('"').strip("'").strip()
@@ -387,18 +479,67 @@ class GeminiLLMService(LLMService):
                         
                 except Exception as e:
                     error_str = str(e)
+                    error_repr = repr(e)
                     
-                    # Se for erro de cota, bloqueia modelo e tenta próximo
-                    if '429' in error_str or 'RESOURCE_EXHAUSTED' in error_str or 'quota' in error_str.lower():
-                        self.gemini_service.model_router.record_error(model_name, 'quota')
-                        self.gemini_service.model_router.block_model(model_name, 'quota_exceeded')
-                        if attempt < max_retries - 1:
-                            continue
+                    last_error = e
                     
-                    # Para outros erros, propaga
-                    raise
+                    # Se for erro 404 (modelo não encontrado), bloqueia temporariamente e tenta próximo
+                    if '404' in error_str or 'NOT_FOUND' in error_str or 'not found' in error_str.lower() or '404' in error_repr:
+                        logger.warning(f"Modelo {model_name} não encontrado (404). Bloqueando temporariamente e tentando próximo modelo...")
+                        self.gemini_service.model_router.record_error(model_name, 'not_found')
+                        self.gemini_service.model_router.block_model(model_name, 'not_found', permanent=False)
+                        self.gemini_service.model_router.validated_models[model_name] = False
+                        logger.info(f"Tentando próximo modelo (tentativa {attempt + 1}/{max_attempts})...")
+                        continue
+                    
+                    # Se for erro 429 ou RESOURCE_EXHAUSTED
+                    is_quota_error = (
+                        '429' in error_str or 
+                        'RESOURCE_EXHAUSTED' in error_str or 
+                        '429' in error_repr or
+                        'RESOURCE_EXHAUSTED' in error_repr
+                    )
+                    
+                    if is_quota_error:
+                        # Verifica se é realmente cota excedida ou modelo não disponível
+                        # Se a mensagem menciona "limit: 0", pode ser que o modelo não esteja disponível para a conta
+                        is_model_unavailable = 'limit: 0' in error_str or 'limit:0' in error_str
+                        
+                        if is_model_unavailable:
+                            logger.warning(f"Modelo {model_name} não disponível para esta conta (limite 0). Bloqueando temporariamente e tentando próximo modelo...")
+                            self.gemini_service.model_router.record_error(model_name, 'not_available')
+                            # Bloqueio temporário - pode ser apenas restrição de API version
+                            self.gemini_service.model_router.block_model(model_name, 'not_available', permanent=False)
+                        else:
+                            logger.warning(f"Modelo {model_name} sem cota disponível (429). Bloqueando temporariamente e tentando próximo modelo...")
+                            self.gemini_service.model_router.record_error(model_name, 'quota')
+                            # Bloqueio temporário - cota pode resetar
+                            self.gemini_service.model_router.block_model(model_name, 'quota_exceeded', permanent=False)
+                        
+                        self.gemini_service.model_router.validated_models[model_name] = False
+                        
+                        # Sempre tenta próximo modelo se houver mais tentativas
+                        logger.info(f"Tentando próximo modelo disponível (tentativa {attempt + 1}/{max_attempts})...")
+                        continue
+                    
+                    # Para outros erros, bloqueia temporariamente e tenta próximo modelo
+                    logger.warning(f"Erro ao usar modelo {model_name}: {error_str[:200]}. Bloqueando temporariamente e tentando próximo modelo...")
+                    self.gemini_service.model_router.record_error(model_name, 'api_error')
+                    # Bloqueio temporário - pode ser erro temporário
+                    self.gemini_service.model_router.block_model(model_name, 'api_error', permanent=False)
+                    continue
             
-            raise Exception("Nenhum modelo disponível após todas as tentativas")
+            # Se chegou aqui, tentou todos os modelos e nenhum funcionou
+            blocked = self.gemini_service.model_router.get_blocked_models_list()
+            available = self.gemini_service.model_router.get_available_models()
+            raise Exception(
+                f"Nenhum modelo Gemini disponível após {len(tried_models)} tentativas. "
+                f"Modelos tentados: {tried_models}. "
+                f"Modelos bloqueados: {blocked}. "
+                f"Modelos disponíveis: {available}. "
+                f"Último erro: {str(last_error)[:200] if last_error else 'desconhecido'}. "
+                f"Configure outros serviços LLM (OpenRouter, Groq, Together) como fallback."
+            )
             
         except Exception as e:
             logger.error(f"Erro ao gerar texto com Gemini: {e}")

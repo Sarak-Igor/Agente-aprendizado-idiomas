@@ -167,6 +167,10 @@ class ChatSession(Base):
     # Contexto da sessão (para continuidade)
     session_context = Column(JSONB, nullable=True)  # Tópicos discutidos, erros comuns, etc.
     
+    # Configurações do professor
+    teaching_language = Column(String(10), nullable=True)  # Idioma que o professor ensina (padrão: language)
+    custom_prompt = Column(Text, nullable=True)  # Prompt personalizado do professor
+    
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
@@ -193,6 +197,8 @@ class ChatMessage(Base):
     grammar_errors = Column(JSONB, nullable=True)  # Lista de erros gramaticais detectados
     vocabulary_suggestions = Column(JSONB, nullable=True)  # Sugestões de vocabulário
     difficulty_score = Column(Float, nullable=True)  # Dificuldade estimada da mensagem
+    topics = Column(JSONB, nullable=True)  # Tópicos identificados (em inglês)
+    analysis_metadata = Column(JSONB, nullable=True)  # Metadados da análise
     
     # Feedback do professor (para mensagens do assistant)
     feedback_type = Column(String(50), nullable=True)  # correction, explanation, encouragement, etc.

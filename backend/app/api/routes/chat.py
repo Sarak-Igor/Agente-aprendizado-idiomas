@@ -12,7 +12,8 @@ from app.schemas.schemas import (
     ChatSessionResponse,
     ChatMessageCreate,
     ChatMessageResponse,
-    ChatSessionWithMessages
+    ChatSessionWithMessages,
+    UpdateSessionConfigRequest
 )
 from app.services.chat_router import ChatRouter
 from app.services.chat_service import ChatService
@@ -118,7 +119,7 @@ def get_chat_service(
         token_usage_service=TokenUsageService(db)
     )
     
-    return ChatService(chat_router, db)
+    return ChatService(chat_router, db, current_user.id)
 
 
 @router.post("/sessions", response_model=ChatSessionResponse, status_code=status.HTTP_201_CREATED)
@@ -156,6 +157,8 @@ async def create_chat_session(
             is_active=session.is_active,
             message_count=session.message_count,
             session_context=session.session_context,
+            teaching_language=session.teaching_language,
+            custom_prompt=session.custom_prompt,
             created_at=session.created_at,
             updated_at=session.updated_at
         )
@@ -187,6 +190,8 @@ async def list_chat_sessions(
             is_active=s.is_active,
             message_count=s.message_count,
             session_context=s.session_context,
+            teaching_language=s.teaching_language,
+            custom_prompt=s.custom_prompt,
             created_at=s.created_at,
             updated_at=s.updated_at
         )
@@ -226,6 +231,8 @@ async def get_chat_session(
         is_active=session.is_active,
         message_count=session.message_count,
         session_context=session.session_context,
+        teaching_language=session.teaching_language,
+        custom_prompt=session.custom_prompt,
         created_at=session.created_at,
         updated_at=session.updated_at,
         messages=[
@@ -239,6 +246,8 @@ async def get_chat_session(
                 grammar_errors=m.grammar_errors,
                 vocabulary_suggestions=m.vocabulary_suggestions,
                 difficulty_score=m.difficulty_score,
+                topics=m.topics,
+                analysis_metadata=m.analysis_metadata,
                 feedback_type=m.feedback_type,
                 created_at=m.created_at
             )
@@ -296,6 +305,8 @@ async def send_message(
             grammar_errors=response.grammar_errors,
             vocabulary_suggestions=response.vocabulary_suggestions,
             difficulty_score=response.difficulty_score,
+            topics=response.topics,
+            analysis_metadata=response.analysis_metadata,
             feedback_type=response.feedback_type,
             created_at=response.created_at
         )
@@ -498,6 +509,8 @@ async def change_session_model(
             is_active=updated_session.is_active,
             message_count=updated_session.message_count,
             session_context=updated_session.session_context,
+            teaching_language=updated_session.teaching_language,
+            custom_prompt=updated_session.custom_prompt,
             created_at=updated_session.created_at,
             updated_at=updated_session.updated_at
         )
@@ -511,4 +524,60 @@ async def change_session_model(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Erro ao trocar modelo: {str(e)}"
+        )
+
+
+@router.patch("/sessions/{session_id}/config", response_model=ChatSessionResponse)
+async def update_session_config(
+    session_id: str,
+    config_data: UpdateSessionConfigRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Atualiza configurações da sessão (idioma do professor e prompt personalizado)"""
+    from uuid import UUID
+    
+    # Verifica se sessão pertence ao usuário
+    session = db.query(ChatSession).filter(
+        ChatSession.id == UUID(session_id),
+        ChatSession.user_id == current_user.id
+    ).first()
+    
+    if not session:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Sessão não encontrada"
+        )
+    
+    try:
+        # Atualiza campos se fornecidos
+        if config_data.teaching_language is not None:
+            session.teaching_language = config_data.teaching_language
+        
+        if config_data.custom_prompt is not None:
+            session.custom_prompt = config_data.custom_prompt if config_data.custom_prompt.strip() else None
+        
+        db.commit()
+        db.refresh(session)
+        
+        return ChatSessionResponse(
+            id=session.id,
+            mode=session.mode,
+            language=session.language,
+            model_service=session.model_service,
+            model_name=session.model_name,
+            is_active=session.is_active,
+            message_count=session.message_count,
+            session_context=session.session_context,
+            teaching_language=session.teaching_language,
+            custom_prompt=session.custom_prompt,
+            created_at=session.created_at,
+            updated_at=session.updated_at
+        )
+    except Exception as e:
+        logger.error(f"Erro ao atualizar configurações: {e}")
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Erro ao atualizar configurações: {str(e)}"
         )

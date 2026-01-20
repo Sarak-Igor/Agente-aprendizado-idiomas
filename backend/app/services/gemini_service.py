@@ -381,14 +381,18 @@ Tradução:"""
                     
                     # Registra uso de tokens se o serviço estiver disponível
                     if self.token_usage_service and (input_tokens > 0 or output_tokens > 0 or total_tokens > 0):
-                        self.token_usage_service.record_usage(
-                            service='gemini',
-                            model=model_name,
-                            input_tokens=input_tokens,
-                            output_tokens=output_tokens,
-                            total_tokens=total_tokens if total_tokens > 0 else None,
-                            requests=1
-                        )
+                        try:
+                            self.token_usage_service.record_usage(
+                                service='gemini',
+                                model=model_name,
+                                input_tokens=input_tokens,
+                                output_tokens=output_tokens,
+                                total_tokens=total_tokens if total_tokens > 0 else None,
+                                requests=1,
+                                user_id=None  # user_id não disponível neste contexto
+                            )
+                        except Exception as e:
+                            logger.debug(f"Erro ao registrar tokens (não crítico): {e}")
                     
                     # Remove aspas se presentes
                     if translated.startswith('"') and translated.endswith('"'):
@@ -402,17 +406,27 @@ Tradução:"""
                 error_str = str(e)
                 last_error = e
                 
-                # Se for erro 404 (modelo não encontrado), tenta próximo
-                if '404' in error_str or 'NOT_FOUND' in error_str:
+                # Se for erro 404 (modelo não encontrado), bloqueia temporariamente e tenta próximo
+                if '404' in error_str or 'NOT_FOUND' in error_str or 'not found' in error_str.lower():
+                    logger.warning(f"Modelo {model_name} não encontrado (404). Bloqueando temporariamente e tentando próximo modelo...")
                     self.model_router.record_error(model_name, 'not_found')
-                    continue
-                
-                # Se for erro 429 (rate limit/quota), bloqueia modelo imediatamente e tenta próximo
-                if '429' in error_str or 'RESOURCE_EXHAUSTED' in error_str or 'quota' in error_str.lower():
-                    self.model_router.record_error(model_name, 'quota')
-                    self.model_router.block_model(model_name, 'quota_exceeded')
+                    self.model_router.block_model(model_name, 'not_found', permanent=False)
                     self.model_router.validated_models[model_name] = False
-                    logger.warning(f"Modelo {model_name} bloqueado por cota excedida. Tentando próximo modelo...")
+                    if attempt < max_retries - 1:
+                        continue
+                
+                # Se for erro 429 (rate limit/quota), bloqueia temporariamente e tenta próximo
+                if '429' in error_str or 'RESOURCE_EXHAUSTED' in error_str or 'quota' in error_str.lower():
+                    is_model_unavailable = 'limit: 0' in error_str or 'limit:0' in error_str
+                    if is_model_unavailable:
+                        logger.warning(f"Modelo {model_name} não disponível para esta conta (limite 0). Bloqueando temporariamente...")
+                        self.model_router.record_error(model_name, 'not_available')
+                        self.model_router.block_model(model_name, 'not_available', permanent=False)
+                    else:
+                        logger.warning(f"Modelo {model_name} bloqueado temporariamente por cota excedida. Tentando próximo modelo...")
+                        self.model_router.record_error(model_name, 'quota')
+                        self.model_router.block_model(model_name, 'quota_exceeded', permanent=False)
+                    self.model_router.validated_models[model_name] = False
                     
                     # Se ainda há tentativas, continua com próximo modelo
                     if attempt < max_retries - 1:

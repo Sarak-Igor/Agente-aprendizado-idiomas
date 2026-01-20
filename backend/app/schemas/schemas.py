@@ -21,7 +21,7 @@ class VideoProcessRequest(BaseModel):
     youtube_url: HttpUrl
     source_language: str = Field(..., min_length=2, max_length=10)
     target_language: str = Field(..., min_length=2, max_length=10)
-    gemini_api_key: str = Field(..., min_length=10)
+    gemini_api_key: Optional[str] = Field(default=None, description="Chave de API do Gemini (opcional, só usada como fallback)")
     force_retranslate: bool = Field(default=False, description="Força retradução mesmo se já existir tradução")
 
 
@@ -113,6 +113,8 @@ class ChatMessageResponse(BaseModel):
     grammar_errors: Optional[dict] = None
     vocabulary_suggestions: Optional[dict] = None
     difficulty_score: Optional[float] = None
+    topics: Optional[List[str]] = None
+    analysis_metadata: Optional[dict] = None
     feedback_type: Optional[str] = None
     created_at: datetime
 
@@ -133,9 +135,16 @@ class ChatSessionResponse(BaseModel):
     is_active: bool
     message_count: int
     session_context: Optional[dict] = None
+    teaching_language: Optional[str] = None
+    custom_prompt: Optional[str] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
 
 
 class ChatSessionWithMessages(ChatSessionResponse):
     messages: List[ChatMessageResponse] = []
+
+
+class UpdateSessionConfigRequest(BaseModel):
+    teaching_language: Optional[str] = Field(None, min_length=2, max_length=10)
+    custom_prompt: Optional[str] = None

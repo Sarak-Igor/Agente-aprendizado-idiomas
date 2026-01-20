@@ -1,4 +1,5 @@
 from sqlalchemy.orm import Session
+from typing import Optional
 from app.models.database import Job, Video, Translation, ApiKey
 from app.schemas.schemas import SubtitleSegment, TranslationSegment
 from app.services.youtube_service import YouTubeService
@@ -61,7 +62,7 @@ class JobService:
         youtube_url: str,
         source_language: str,
         target_language: str,
-        gemini_api_key: str
+        gemini_api_key: Optional[str]
     ):
         """
         Processa uma tradução de vídeo em background

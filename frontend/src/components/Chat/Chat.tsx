@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { chatApi, ChatSession, ChatMessage, ChatSessionCreate, AvailableModelsResponse, ChangeModelRequest } from '../../services/api';
+import { chatApi, ChatSession, ChatMessage, ChatSessionCreate, AvailableModelsResponse, ChangeModelRequest, UpdateSessionConfigRequest } from '../../services/api';
 import { storage } from '../../services/storage';
 import './Chat.css';
 
@@ -8,7 +8,6 @@ export const Chat = () => {
   const [currentSession, setCurrentSession] = useState<ChatSession | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputMessage, setInputMessage] = useState('');
-  const [mode, setMode] = useState<'writing' | 'conversation'>('writing');
   const [loading, setLoading] = useState(false);
   const [creatingSession, setCreatingSession] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -17,17 +16,89 @@ export const Chat = () => {
   const [availableModels, setAvailableModels] = useState<AvailableModelsResponse>({});
   const [showModelSelector, setShowModelSelector] = useState(false);
   const [changingModel, setChangingModel] = useState(false);
+  const [showConfigPopup, setShowConfigPopup] = useState(false);
+  const [teachingLanguage, setTeachingLanguage] = useState<string>('en');
+  const [customPrompt, setCustomPrompt] = useState<string>('');
+  const [defaultPrompt, setDefaultPrompt] = useState<string>('');
 
   const targetLanguage = storage.getTargetLanguage();
 
+  // Carrega sessões e inicializa chat automaticamente
+  const createNewSession = async () => {
+    if (!targetLanguage) {
+      console.warn('Idioma de destino não selecionado. Não é possível criar sessão.');
+      return;
+    }
+
+    setCreatingSession(true);
+    try {
+      // Usa modo 'conversation' como padrão (mais natural)
+      const sessionData: ChatSessionCreate = {
+        mode: 'conversation',
+        language: targetLanguage,
+      };
+      const session = await chatApi.createSession(sessionData);
+      setCurrentSession(session);
+      setSessions([session, ...sessions]);
+      setMessages([]);
+    } catch (error: any) {
+      console.error('Erro ao criar sessão:', error);
+      // Não mostra alerta para erro silencioso na inicialização
+      if (!currentSession) {
+        // Só mostra erro se não houver sessão anterior
+        alert(error.response?.data?.detail || 'Erro ao criar sessão de chat');
+      }
+    } finally {
+      setCreatingSession(false);
+    }
+  };
+
+  // Carrega sessões e inicializa chat automaticamente
   useEffect(() => {
-    loadSessions();
-  }, []);
+    const initializeChat = async () => {
+      // Primeiro carrega sessões existentes
+      try {
+        const data = await chatApi.listSessions();
+        setSessions(data);
+        
+        // Se há sessões ativas, usa a mais recente
+        const activeSession = data.find(s => s.is_active);
+        if (activeSession) {
+          setCurrentSession(activeSession);
+          return; // Já tem sessão, não precisa criar
+        }
+      } catch (error: any) {
+        console.error('Erro ao carregar sessões:', error);
+      }
+      
+      // Se não há sessão ativa e tem targetLanguage, cria uma nova
+      const lang = storage.getTargetLanguage();
+      if (!currentSession && !creatingSession && lang) {
+        await createNewSession();
+      } else if (!lang) {
+        // Se não tem targetLanguage, tenta novamente após delay
+        setTimeout(async () => {
+          const langRetry = storage.getTargetLanguage();
+          if (!currentSession && !creatingSession && langRetry) {
+            await createNewSession();
+          }
+        }, 1000);
+      }
+    };
+    
+    initializeChat();
+  }, []); // Executa apenas uma vez ao montar
 
   useEffect(() => {
     if (currentSession) {
       loadSessionMessages();
       loadAvailableModels();
+      // Atualiza valores do popup quando a sessão muda
+      const lang = currentSession.teaching_language || currentSession.language || 'en';
+      setTeachingLanguage(lang);
+      setCustomPrompt(currentSession.custom_prompt || '');
+      // Calcula prompt padrão
+      setDefaultPrompt(calculateDefaultPrompt(lang, currentSession.mode));
     }
   }, [currentSession]);
 
@@ -39,10 +110,65 @@ export const Chat = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
+  // Calcula o prompt padrão baseado no idioma e modo
+  const calculateDefaultPrompt = (lang: string, mode: string = 'conversation'): string => {
+    const languageNames: { [key: string]: string } = {
+      'pt': 'português',
+      'en': 'inglês',
+      'es': 'espanhol',
+      'fr': 'francês',
+      'de': 'alemão',
+      'it': 'italiano',
+      'ja': 'japonês',
+      'ko': 'coreano',
+      'zh': 'chinês',
+      'ru': 'russo'
+    };
+    
+    const learningLanguage = languageNames[lang] || lang;
+    const nativeLanguage = 'português';
+    const proficiency = 'iniciante';
+    
+    if (mode === 'writing') {
+      return `Você é um professor de ${learningLanguage} experiente e paciente. Seu aluno é ${proficiency} e fala ${nativeLanguage} como idioma nativo.
+
+MODO: ESCRITA
+- Avalie a escrita do aluno
+- Corrija erros gramaticais de forma clara e didática
+- Explique as correções quando necessário
+- Forneça sugestões de vocabulário mais apropriado
+- Seja encorajador e positivo
+- Use ${nativeLanguage} para explicações quando necessário
+- Mantenha o foco em melhorar a escrita do aluno
+
+Comece a conversa de forma amigável e pergunte sobre o que o aluno gostaria de praticar hoje.`;
+    } else {
+      return `Você é um professor de ${learningLanguage} experiente e paciente. Seu aluno é ${proficiency} e fala ${nativeLanguage} como idioma nativo.
+
+MODO: CONVERSA
+- Converse naturalmente em ${learningLanguage}
+- Ajuste a complexidade do vocabulário ao nível do aluno (${proficiency})
+- Faça perguntas interessantes para manter a conversa fluindo
+- Corrija erros de forma sutil e natural
+- Use ${nativeLanguage} apenas quando necessário para explicações
+- Seja encorajador e crie um ambiente descontraído
+
+Comece a conversa de forma natural e amigável.`;
+    }
+  };
+
   const loadSessions = async () => {
     try {
       const data = await chatApi.listSessions();
       setSessions(data);
+      
+      // Se não há sessão atual, tenta usar a mais recente ativa
+      if (!currentSession && data.length > 0) {
+        const activeSession = data.find(s => s.is_active);
+        if (activeSession) {
+          setCurrentSession(activeSession);
+        }
+      }
     } catch (error: any) {
       console.error('Erro ao carregar sessões:', error);
       // O ProtectedRoute já gerencia autenticação
@@ -101,30 +227,6 @@ export const Chat = () => {
     
     const serviceName = serviceNames[session.model_service] || session.model_service;
     return `${serviceName} - ${session.model_name}`;
-  };
-
-  const createNewSession = async () => {
-    if (!targetLanguage) {
-      alert('Por favor, selecione um idioma de destino primeiro.');
-      return;
-    }
-
-    setCreatingSession(true);
-    try {
-      const sessionData: ChatSessionCreate = {
-        mode,
-        language: targetLanguage,
-      };
-      const session = await chatApi.createSession(sessionData);
-      setCurrentSession(session);
-      setSessions([session, ...sessions]);
-      setMessages([]);
-    } catch (error: any) {
-      console.error('Erro ao criar sessão:', error);
-      alert(error.response?.data?.detail || 'Erro ao criar sessão de chat');
-    } finally {
-      setCreatingSession(false);
-    }
   };
 
   const sendMessage = async () => {
@@ -222,38 +324,24 @@ export const Chat = () => {
       <div className="chat-header">
         <h2>💬 Chat com Professor</h2>
         <div className="chat-controls">
-          <div className="mode-selector">
-            <label>
-              <input
-                type="radio"
-                value="writing"
-                checked={mode === 'writing'}
-                onChange={(e) => setMode(e.target.value as 'writing' | 'conversation')}
-                disabled={!!currentSession}
-              />
-              ✍️ Escrita
-            </label>
-            <label>
-              <input
-                type="radio"
-                value="conversation"
-                checked={mode === 'conversation'}
-                onChange={(e) => setMode(e.target.value as 'conversation' | 'writing')}
-                disabled={!!currentSession}
-              />
-              🎤 Conversa
-            </label>
-          </div>
-          {!currentSession ? (
-            <button
-              onClick={createNewSession}
-              disabled={creatingSession}
-              className="btn-primary"
-            >
-              {creatingSession ? 'Criando...' : 'Nova Conversa'}
-            </button>
-          ) : (
+          {currentSession ? (
             <>
+              <button
+                onClick={() => {
+                  // Carrega valores da sessão ao abrir o popup
+                  if (currentSession) {
+                    const lang = currentSession.teaching_language || currentSession.language || 'en';
+                    setTeachingLanguage(lang);
+                    setCustomPrompt(currentSession.custom_prompt || '');
+                    setDefaultPrompt(calculateDefaultPrompt(lang, currentSession.mode));
+                  }
+                  setShowConfigPopup(true);
+                }}
+                className="btn-config"
+                title="Configurações"
+              >
+                ⚙️
+              </button>
               <div className="current-model-info">
                 <span className="model-label">Modelo:</span>
                 <span className="model-name">{getModelDisplayName(currentSession)}</span>
@@ -267,14 +355,38 @@ export const Chat = () => {
                 </button>
               </div>
               <button
-                onClick={() => {
+                onClick={async () => {
                   setCurrentSession(null);
                   setMessages([]);
+                  // Cria nova sessão automaticamente
+                  await createNewSession();
                 }}
                 className="btn-secondary"
               >
                 Nova Conversa
               </button>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={() => {
+                  // Carrega valores da sessão ao abrir o popup
+                  if (currentSession) {
+                    const lang = currentSession.teaching_language || currentSession.language || 'en';
+                    setTeachingLanguage(lang);
+                    setCustomPrompt(currentSession.custom_prompt || '');
+                    setDefaultPrompt(calculateDefaultPrompt(lang, currentSession.mode));
+                  }
+                  setShowConfigPopup(true);
+                }}
+                className="btn-config"
+                title="Configurações"
+              >
+                ⚙️
+              </button>
+              {creatingSession && (
+                <span className="creating-session-indicator">Criando sessão...</span>
+              )}
             </>
           )}
         </div>
@@ -282,17 +394,16 @@ export const Chat = () => {
 
       {!currentSession ? (
         <div className="chat-welcome">
-          <p>Selecione o modo de treino e clique em "Nova Conversa" para começar!</p>
-          <div className="mode-info">
-            <div className="mode-card">
-              <h3>✍️ Modo Escrita</h3>
-              <p>Pratique sua escrita. O professor corrigirá seus erros e dará feedback.</p>
+          <p>Inicializando chat...</p>
+          {creatingSession && (
+            <div className="loading-indicator">
+              <div className="typing-indicator">
+                <span></span>
+                <span></span>
+                <span></span>
+              </div>
             </div>
-            <div className="mode-card">
-              <h3>🎤 Modo Conversa</h3>
-              <p>Converse naturalmente. O professor ajustará o nível ao seu conhecimento.</p>
-            </div>
-          </div>
+          )}
         </div>
       ) : (
         <>
@@ -336,25 +447,19 @@ export const Chat = () => {
                 value={inputMessage}
                 onChange={(e) => setInputMessage(e.target.value)}
                 onKeyPress={handleKeyPress}
-                placeholder={
-                  mode === 'writing'
-                    ? 'Escreva sua mensagem...'
-                    : 'Digite ou grave uma mensagem...'
-                }
+                placeholder="Digite sua mensagem ou use o botão de áudio para gravar..."
                 disabled={loading}
                 rows={3}
               />
               <div className="chat-input-actions">
-                {mode === 'conversation' && (
-                  <button
-                    onClick={isRecording ? stopRecording : startRecording}
-                    className={`audio-button ${isRecording ? 'recording' : ''}`}
-                    disabled={loading}
-                    title={isRecording ? 'Parar gravação' : 'Gravar áudio'}
-                  >
-                    {isRecording ? '⏹️' : '🎤'}
-                  </button>
-                )}
+                <button
+                  onClick={isRecording ? stopRecording : startRecording}
+                  className={`audio-button ${isRecording ? 'recording' : ''}`}
+                  disabled={loading}
+                  title={isRecording ? 'Parar gravação' : 'Gravar áudio'}
+                >
+                  {isRecording ? '⏹️' : '🎤'}
+                </button>
                 <button
                   onClick={sendMessage}
                   disabled={!inputMessage.trim() || loading}
@@ -366,6 +471,113 @@ export const Chat = () => {
             </div>
           </div>
         </>
+      )}
+
+      {showConfigPopup && (
+        <div className="config-popup-overlay" onClick={() => setShowConfigPopup(false)}>
+          <div className="config-popup-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="config-popup-header">
+              <h3>Configurações do Professor</h3>
+              <button
+                className="close-button"
+                onClick={() => setShowConfigPopup(false)}
+              >
+                ×
+              </button>
+            </div>
+            <div className="config-popup-content">
+              <div className="config-section">
+                <label className="config-label">
+                  Idioma que o Professor Ensina:
+                </label>
+                <select
+                  value={teachingLanguage}
+                  onChange={(e) => {
+                    const lang = e.target.value;
+                    setTeachingLanguage(lang);
+                    // Atualiza prompt padrão quando o idioma muda
+                    if (currentSession && !customPrompt) {
+                      setDefaultPrompt(calculateDefaultPrompt(lang, currentSession.mode));
+                    }
+                  }}
+                  className="language-selector"
+                >
+                  <option value="en">Inglês</option>
+                  <option value="pt">Português</option>
+                  <option value="es">Espanhol</option>
+                  <option value="fr">Francês</option>
+                  <option value="de">Alemão</option>
+                  <option value="it">Italiano</option>
+                  <option value="ja">Japonês</option>
+                  <option value="ko">Coreano</option>
+                  <option value="zh">Chinês</option>
+                  <option value="ru">Russo</option>
+                </select>
+              </div>
+              <div className="config-section">
+                <label className="config-label">
+                  Prompt do Professor (Personalizado):
+                </label>
+                <textarea
+                  value={customPrompt || defaultPrompt}
+                  onChange={(e) => setCustomPrompt(e.target.value)}
+                  className="prompt-textarea"
+                  placeholder="Deixe vazio para usar o prompt padrão baseado no idioma selecionado..."
+                  rows={10}
+                />
+                <p className="config-hint">
+                  O prompt padrão será usado se este campo estiver vazio. O prompt personalizado substituirá completamente o padrão.
+                </p>
+              </div>
+              <div className="config-popup-actions">
+                <button
+                  onClick={async () => {
+                    if (currentSession) {
+                      try {
+                        // Se o prompt editado é igual ao padrão, salva como vazio para usar o padrão
+                        const promptToSave = (customPrompt && customPrompt.trim() !== defaultPrompt.trim()) 
+                          ? customPrompt.trim() 
+                          : undefined;
+                        
+                        await chatApi.updateConfig(currentSession.id, {
+                          teaching_language: teachingLanguage,
+                          custom_prompt: promptToSave
+                        });
+                        setShowConfigPopup(false);
+                        // Recarrega a sessão para atualizar
+                        loadSessionMessages();
+                      } catch (error: any) {
+                        console.error('Erro ao salvar configurações:', error);
+                        alert(error.response?.data?.detail || 'Erro ao salvar configurações');
+                      }
+                    } else {
+                      // Se não há sessão, apenas fecha o popup (configurações serão aplicadas na próxima sessão)
+                      setShowConfigPopup(false);
+                    }
+                  }}
+                  className="btn-primary"
+                >
+                  Salvar
+                </button>
+                <button
+                  onClick={() => {
+                    setShowConfigPopup(false);
+                    // Reseta para os valores da sessão ao cancelar
+                    if (currentSession) {
+                      const lang = currentSession.teaching_language || currentSession.language || 'en';
+                      setTeachingLanguage(lang);
+                      setCustomPrompt(currentSession.custom_prompt || '');
+                      setDefaultPrompt(calculateDefaultPrompt(lang, currentSession.mode));
+                    }
+                  }}
+                  className="btn-secondary"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {showModelSelector && (

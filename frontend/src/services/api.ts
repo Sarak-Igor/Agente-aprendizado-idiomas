@@ -41,7 +41,7 @@ export interface VideoProcessRequest {
   youtube_url: string;
   source_language: string;
   target_language: string;
-  gemini_api_key: string;
+  gemini_api_key?: string | null;
   force_retranslate?: boolean;
 }
 
@@ -389,6 +389,8 @@ export interface ChatSession {
   is_active: boolean;
   message_count: number;
   session_context?: any;
+  teaching_language?: string;
+  custom_prompt?: string;
   created_at: string;
   updated_at?: string;
 }
@@ -437,6 +439,11 @@ export interface ChangeModelRequest {
   model: string;
 }
 
+export interface UpdateSessionConfigRequest {
+  teaching_language?: string;
+  custom_prompt?: string;
+}
+
 export const chatApi = {
   createSession: async (data: ChatSessionCreate): Promise<ChatSession> => {
     const response = await api.post<ChatSession>('/api/chat/sessions', data);
@@ -480,6 +487,11 @@ export const chatApi = {
 
   changeModel: async (sessionId: string, modelData: ChangeModelRequest): Promise<ChatSession> => {
     const response = await api.patch<ChatSession>(`/api/chat/sessions/${sessionId}/model`, modelData);
+    return response.data;
+  },
+
+  updateConfig: async (sessionId: string, configData: UpdateSessionConfigRequest): Promise<ChatSession> => {
+    const response = await api.patch<ChatSession>(`/api/chat/sessions/${sessionId}/config`, configData);
     return response.data;
   },
 };

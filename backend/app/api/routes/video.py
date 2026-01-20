@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
+from typing import Optional
 from app.database import get_db, SessionLocal
 from app.schemas.schemas import (
     VideoProcessRequest,
@@ -28,7 +29,7 @@ def run_job_in_background(
     youtube_url: str,
     source_language: str,
     target_language: str,
-    gemini_api_key: str
+    gemini_api_key: Optional[str]
 ):
     """Executa job em thread separada com sua própria sessão do banco"""
     # Cria uma nova sessão para esta thread

@@ -6,6 +6,15 @@ import re
 
 logger = logging.getLogger(__name__)
 
+# TTL para bloqueios temporários (em minutos)
+BLOCK_TTL_MINUTES = {
+    'quota_exceeded': 60,  # 1 hora para cota excedida
+    'not_found': 1440,  # 24 horas para modelo não encontrado
+    'not_available': 60,  # 1 hora para modelo não disponível (pode ser temporário)
+    'api_error': 15,  # 15 minutos para erros de API (pode ser temporário)
+    'default': 30  # 30 minutos padrão
+}
+
 # Categorias de modelos
 MODEL_CATEGORIES = {
     'text': 'Escrita',
@@ -120,6 +129,8 @@ class ModelRouter:
         
         # Inicializa blocked_models - apenas modelos realmente bloqueados
         self.blocked_models = set(blocked_models or [])
+        # Bloqueios temporários com TTL
+        self.temporary_blocks: Dict[str, Dict] = {}  # {model_name: {'reason': str, 'blocked_until': datetime}}
         self.model_usage_history: Dict[str, List[datetime]] = {}
         self.model_errors: Dict[str, int] = {}  # Contador de erros por modelo
         self.validated_models: Dict[str, bool] = {}  # Cache de modelos validados
@@ -262,9 +273,31 @@ class ModelRouter:
     
     def get_available_models(self) -> List[str]:
         """
-        Retorna lista de modelos disponíveis (não bloqueados)
+        Retorna lista de modelos disponíveis (não bloqueados permanentemente e não bloqueados temporariamente)
         """
-        return [model for model in self.AVAILABLE_MODELS if model not in self.blocked_models]
+        now = datetime.now()
+        available = []
+        
+        for model in self.AVAILABLE_MODELS:
+            # Verifica bloqueio permanente
+            if model in self.blocked_models:
+                continue
+            
+            # Verifica bloqueio temporário
+            if model in self.temporary_blocks:
+                block_info = self.temporary_blocks[model]
+                blocked_until = block_info.get('blocked_until')
+                if blocked_until and now < blocked_until:
+                    # Ainda bloqueado temporariamente
+                    continue
+                else:
+                    # Bloqueio temporário expirou, remove
+                    logger.info(f"Bloqueio temporário do modelo {model} expirou. Desbloqueando...")
+                    del self.temporary_blocks[model]
+            
+            available.append(model)
+        
+        return available
     
     def get_next_model(self, exclude_models: List[str] = None) -> Optional[str]:
         """
@@ -279,6 +312,22 @@ class ModelRouter:
         exclude = set(exclude_models or [])
         exclude.update(self.blocked_models)
         
+        # Limpa bloqueios temporários expirados
+        now = datetime.now()
+        expired_blocks = [
+            model for model, block_info in self.temporary_blocks.items()
+            if block_info.get('blocked_until') and now >= block_info['blocked_until']
+        ]
+        for model in expired_blocks:
+            logger.info(f"Bloqueio temporário do modelo {model} expirou. Desbloqueando...")
+            del self.temporary_blocks[model]
+        
+        # Adiciona modelos bloqueados temporariamente ao exclude
+        for model, block_info in self.temporary_blocks.items():
+            blocked_until = block_info.get('blocked_until')
+            if blocked_until and now < blocked_until:
+                exclude.add(model)
+        
         available = [m for m in self.AVAILABLE_MODELS if m not in exclude]
         
         if not available:
@@ -287,15 +336,30 @@ class ModelRouter:
         # Retorna o primeiro disponível (já está em ordem de prioridade)
         return available[0]
     
-    def block_model(self, model_name: str, reason: str = "quota_exceeded"):
+    def block_model(self, model_name: str, reason: str = "quota_exceeded", permanent: bool = False):
         """
-        Bloqueia um modelo (ex: cota excedida)
+        Bloqueia um modelo (temporariamente ou permanentemente)
         
         Args:
             model_name: Nome do modelo a bloquear
-            reason: Razão do bloqueio
+            reason: Razão do bloqueio ('quota_exceeded', 'not_found', 'not_available', 'api_error')
+            permanent: Se True, bloqueia permanentemente. Se False, bloqueia temporariamente com TTL
         """
-        self.blocked_models.add(model_name)
+        if permanent:
+            # Bloqueio permanente (apenas para casos extremos)
+            self.blocked_models.add(model_name)
+            logger.warning(f"Modelo {model_name} bloqueado permanentemente: {reason}")
+        else:
+            # Bloqueio temporário com TTL
+            ttl_minutes = BLOCK_TTL_MINUTES.get(reason, BLOCK_TTL_MINUTES['default'])
+            blocked_until = datetime.now() + timedelta(minutes=ttl_minutes)
+            self.temporary_blocks[model_name] = {
+                'reason': reason,
+                'blocked_until': blocked_until,
+                'blocked_at': datetime.now()
+            }
+            logger.info(f"Modelo {model_name} bloqueado temporariamente por {ttl_minutes} minutos: {reason}")
+        
         if model_name not in self.model_errors:
             self.model_errors[model_name] = 0
         self.model_errors[model_name] += 1
@@ -448,12 +512,31 @@ class ModelRouter:
         Retorna lista de modelos que foram validados como disponíveis
         Se um modelo não foi validado ainda (não está no dict), assume que está disponível
         Apenas modelos explicitamente marcados como False são excluídos
+        Considera bloqueios temporários e permanentes
         """
-        return [
-            model for model in self.AVAILABLE_MODELS
-            if model not in self.blocked_models 
-            and (model not in self.validated_models or self.validated_models[model] is True)
-        ]
+        now = datetime.now()
+        validated = []
+        
+        for model in self.AVAILABLE_MODELS:
+            # Verifica bloqueio permanente
+            if model in self.blocked_models:
+                continue
+            
+            # Verifica bloqueio temporário
+            if model in self.temporary_blocks:
+                block_info = self.temporary_blocks[model]
+                blocked_until = block_info.get('blocked_until')
+                if blocked_until and now < blocked_until:
+                    continue
+                else:
+                    # Bloqueio expirado, remove
+                    del self.temporary_blocks[model]
+            
+            # Verifica se foi validado (ou não foi validado ainda - assume disponível)
+            if model not in self.validated_models or self.validated_models[model] is True:
+                validated.append(model)
+        
+        return validated
     
     def get_models_by_category(self, category: str) -> List[str]:
         """

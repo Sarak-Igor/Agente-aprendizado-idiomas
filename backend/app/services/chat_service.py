@@ -3,12 +3,22 @@ Serviço de chat para aprendizado de idiomas
 Gerencia conversas com LLMs configurados como professores de idioma
 """
 from typing import Optional, List, Dict
+from uuid import UUID
 from sqlalchemy.orm import Session
 from app.models.database import ChatSession, ChatMessage, UserProfile
 from app.services.chat_router import ChatRouter
 from app.services.llm_service import LLMService
+from app.services.language_normalizer import LanguageNormalizer
+from app.services.message_analyzer import MessageAnalyzer
+from app.schemas.analysis_schemas import (
+    validate_grammar_errors,
+    validate_vocabulary_suggestions,
+    validate_topics,
+    validate_analysis_metadata
+)
 import json
 import logging
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -19,10 +29,16 @@ class ChatService:
     def __init__(
         self,
         chat_router: ChatRouter,
-        db: Session
+        db: Session,
+        user_id: Optional[UUID] = None
     ):
         self.chat_router = chat_router
         self.db = db
+        self.user_id = user_id
+        
+        # Inicializa serviços de análise
+        self.language_normalizer = LanguageNormalizer(db, user_id)
+        self.message_analyzer = MessageAnalyzer(chat_router)
     
     def create_session(
         self,
@@ -104,6 +120,10 @@ class ChatService:
         user_profile: Optional[UserProfile]
     ) -> str:
         """Constrói prompt do sistema para o professor"""
+        # Se há prompt personalizado, usa ele diretamente
+        if session.custom_prompt and session.custom_prompt.strip():
+            return session.custom_prompt.strip()
+        
         language_names = {
             'pt': 'português',
             'en': 'inglês',
@@ -117,7 +137,9 @@ class ChatService:
             'ru': 'russo'
         }
         
-        learning_language = language_names.get(session.language, session.language)
+        # Usa teaching_language se definido, senão usa language
+        teaching_lang = session.teaching_language if session.teaching_language else session.language
+        learning_language = language_names.get(teaching_lang, teaching_lang)
         native_language = "português"
         proficiency = "iniciante"
         
@@ -165,14 +187,24 @@ Comece a conversa de forma natural e amigável."""
         transcription: Optional[str] = None
     ) -> ChatMessage:
         """Envia mensagem do usuário e obtém resposta do professor"""
-        from uuid import UUID
-        
         session = self.db.query(ChatSession).filter(ChatSession.id == UUID(session_id)).first()
         if not session:
             raise Exception("Sessão não encontrada")
         
         if not session.is_active:
             raise Exception("Sessão não está ativa")
+        
+        # Normaliza mensagem para inglês (para análise)
+        # Se normalização falhar, usa mensagem original
+        message_to_analyze = transcription if transcription else content
+        try:
+            normalized_message = self.language_normalizer.normalize_for_storage(
+                message_to_analyze,
+                session.language
+            )
+        except Exception as e:
+            logger.warning(f"Erro ao normalizar mensagem para análise: {e}. Usando mensagem original.")
+            normalized_message = message_to_analyze
         
         # Cria mensagem do usuário
         user_message = ChatMessage(
@@ -190,11 +222,17 @@ Comece a conversa de forma natural e amigável."""
             ChatMessage.session_id == session.id
         ).order_by(ChatMessage.created_at).all()
         
+        # Obtém perfil do usuário para construir o prompt do sistema
+        user_profile = self.db.query(UserProfile).filter(
+            UserProfile.user_id == session.user_id
+        ).first()
+        
         # Gera resposta do professor
         assistant_response = self._generate_response(
             session,
             previous_messages,
-            user_message
+            user_message,
+            user_profile
         )
         
         # Cria mensagem do assistente
@@ -210,10 +248,7 @@ Comece a conversa de forma natural e amigável."""
         # Atualiza contador de mensagens
         session.message_count += 1
         
-        # Atualiza perfil do usuário
-        user_profile = self.db.query(UserProfile).filter(
-            UserProfile.user_id == session.user_id
-        ).first()
+        # Atualiza perfil do usuário (já obtido anteriormente)
         if user_profile:
             user_profile.total_chat_messages += 1
         
@@ -221,13 +256,26 @@ Comece a conversa de forma natural e amigável."""
         self.db.refresh(user_message)
         self.db.refresh(assistant_message)
         
+        # Enfileira análise assíncrona em thread separada
+        user_level = "beginner"
+        if user_profile and user_profile.proficiency_level:
+            user_level = user_profile.proficiency_level
+        
+        self._enqueue_async_analysis(
+            user_message.id,
+            normalized_message,
+            session.language,
+            user_level
+        )
+        
         return assistant_message
     
     def _generate_response(
         self,
         session: ChatSession,
         previous_messages: List[ChatMessage],
-        user_message: ChatMessage
+        user_message: ChatMessage,
+        user_profile: Optional[UserProfile] = None
     ) -> Dict[str, str]:
         """Gera resposta do professor usando LLM"""
         # Obtém serviço LLM
@@ -235,10 +283,12 @@ Comece a conversa de forma natural e amigável."""
         if not service:
             raise Exception(f"Serviço {session.model_service} não disponível")
         
-        # Constrói contexto da conversa
+        # Constrói contexto da conversa incluindo o prompt do sistema
         conversation_context = self._build_conversation_context(
+            session,
             previous_messages,
-            user_message
+            user_message,
+            user_profile
         )
         
         try:
@@ -274,16 +324,34 @@ Comece a conversa de forma natural e amigável."""
     
     def _build_conversation_context(
         self,
+        session: ChatSession,
         previous_messages: List[ChatMessage],
-        current_message: ChatMessage
+        current_message: ChatMessage,
+        user_profile: Optional[UserProfile] = None
     ) -> str:
-        """Constrói contexto da conversa para o LLM"""
+        """Constrói contexto da conversa para o LLM incluindo o prompt do sistema"""
         context_parts = []
+        
+        # Adiciona o prompt do sistema no início
+        system_prompt = self._build_system_prompt(session, user_profile)
+        context_parts.append(f"INSTRUÇÕES DO SISTEMA:\n{system_prompt}\n")
+        context_parts.append("---")
+        context_parts.append("CONVERSA:")
+        context_parts.append("")
         
         # Adiciona mensagens anteriores (últimas 10 para não exceder tokens)
         recent_messages = previous_messages[-10:] if len(previous_messages) > 10 else previous_messages
         
         for msg in recent_messages:
+            # Pula a mensagem inicial do assistente que contém apenas o prompt do sistema
+            # (identificada por ser a primeira mensagem e conter o prompt completo)
+            if (msg.role == "assistant" and 
+                len(previous_messages) > 0 and 
+                msg.id == previous_messages[0].id and
+                len(msg.content) > 200 and 
+                ("Você é um professor" in msg.content or "MODO:" in msg.content)):
+                continue
+            
             if msg.role == "user":
                 content = msg.transcription if msg.transcription else msg.content
                 context_parts.append(f"Aluno: {content}")
@@ -375,3 +443,77 @@ Comece a conversa de forma natural e amigável."""
         
         logger.info(f"Modelo da sessão {session_id} alterado para {service}/{model}")
         return session
+    
+    def _enqueue_async_analysis(
+        self,
+        message_id: UUID,
+        normalized_message: str,
+        language: str,
+        user_level: str
+    ):
+        """
+        Enfileira análise assíncrona da mensagem em thread separada
+        
+        Args:
+            message_id: ID da mensagem no banco
+            normalized_message: Mensagem normalizada para inglês
+            language: Idioma original
+            user_level: Nível do usuário
+        """
+        def analyze_in_background():
+            """Executa análise em background"""
+            # Cria nova sessão do banco para thread
+            from app.database import SessionLocal
+            db = SessionLocal()
+            try:
+                # Realiza análise
+                analysis = self.message_analyzer.analyze_message(
+                    normalized_message,
+                    language,
+                    user_level
+                )
+                
+                # Valida dados antes de armazenar
+                validated_grammar_errors = validate_grammar_errors(
+                    analysis.get("grammar_errors", [])
+                )
+                validated_vocabulary = validate_vocabulary_suggestions(
+                    analysis.get("vocabulary_suggestions", [])
+                )
+                validated_topics = validate_topics(
+                    analysis.get("topics", [])
+                )
+                validated_metadata = validate_analysis_metadata(
+                    analysis.get("analysis_metadata", {})
+                )
+                
+                # Atualiza mensagem no banco
+                message = db.query(ChatMessage).filter(
+                    ChatMessage.id == message_id
+                ).first()
+                
+                if message:
+                    # Salva dados da análise
+                    # Listas vazias [] indicam que a análise foi feita mas não encontrou nada
+                    # None indica que a análise não foi executada ou falhou
+                    message.grammar_errors = validated_grammar_errors  # Pode ser [] ou lista com dados
+                    message.vocabulary_suggestions = validated_vocabulary  # Pode ser [] ou lista com dados
+                    message.difficulty_score = analysis.get("difficulty_score")
+                    message.topics = validated_topics  # Pode ser [] ou lista com dados
+                    message.analysis_metadata = validated_metadata
+                    
+                    db.commit()
+                    logger.info(f"Análise assíncrona concluída para mensagem {message_id}")
+                else:
+                    logger.warning(f"Mensagem {message_id} não encontrada para atualização")
+                    
+            except Exception as e:
+                logger.error(f"Erro na análise assíncrona da mensagem {message_id}: {e}")
+                db.rollback()
+            finally:
+                db.close()
+        
+        # Inicia thread em background
+        thread = threading.Thread(target=analyze_in_background, daemon=True)
+        thread.start()
+        logger.debug(f"Análise assíncrona enfileirada para mensagem {message_id}")

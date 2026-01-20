@@ -11,8 +11,8 @@
 }
 
 .api-key-item {
-  background: #f9fafb;
-  border: 2px solid #e5e7eb;
+  background: var(--bg-card, #f9fafb);
+  border: 2px solid var(--border-color, #e5e7eb);
   border-radius: 12px;
   padding: 20px;
   transition: all 0.2s;
@@ -37,21 +37,21 @@
   flex: 1;
 }
 
-.service-icon {
+.api-key-manager .service-icon {
   font-size: 32px;
 }
 
 .api-key-service h4 {
   margin: 0 0 4px 0;
   font-size: 1.1rem;
-  color: #1f2937;
+  color: var(--text-primary, #1f2937);
 }
 
 .api-key-preview {
   margin: 0;
   font-family: monospace;
   font-size: 0.875rem;
-  color: #6b7280;
+  color: var(--text-secondary, #6b7280);
 }
 
 .api-key-actions {
@@ -128,15 +128,17 @@
   width: 100%;
   margin-top: 12px;
   padding: 12px;
-  border: 2px solid #e5e7eb;
+  border: 2px solid var(--border-color, #e5e7eb);
   border-radius: 8px;
   font-family: monospace;
   font-size: 0.875rem;
+  background: var(--bg-card, #ffffff);
+  color: var(--text-primary, #1f2937);
 }
 
 .api-key-add {
-  background: white;
-  border: 2px dashed #d1d5db;
+  background: var(--bg-card, #ffffff);
+  border: 2px dashed var(--border-color, #d1d5db);
   border-radius: 12px;
   padding: 24px;
 }
@@ -144,7 +146,7 @@
 .api-key-add h3 {
   margin: 0 0 16px 0;
   font-size: 1.25rem;
-  color: #1f2937;
+  color: var(--text-primary, #1f2937);
 }
 
 .api-key-add-form {
@@ -155,18 +157,21 @@
 
 .api-key-service-select {
   padding: 12px;
-  border: 2px solid #e5e7eb;
+  border: 2px solid var(--border-color, #e5e7eb);
   border-radius: 8px;
   font-size: 1rem;
-  background: white;
+  background: var(--bg-card, #ffffff);
+  color: var(--text-primary, #1f2937);
 }
 
 .api-key-add-input {
   padding: 12px;
-  border: 2px solid #e5e7eb;
+  border: 2px solid var(--border-color, #e5e7eb);
   border-radius: 8px;
   font-family: monospace;
   font-size: 0.875rem;
+  background: var(--bg-card, #ffffff);
+  color: var(--text-primary, #1f2937);
 }
 
 .api-key-add-input:focus,
@@ -183,7 +188,7 @@
 
 .api-key-link-btn {
   padding: 10px 20px;
-  background: #f3f4f6;
+  background: var(--bg-secondary, #f3f4f6);
   color: #7c3aed;
   text-decoration: none;
   border-radius: 8px;
@@ -193,7 +198,7 @@
 }
 
 .api-key-link-btn:hover {
-  background: #e5e7eb;
+  background: var(--border-color, #e5e7eb);
   border-color: #7c3aed;
 }
 
@@ -201,7 +206,7 @@
 .api-key-status {
   margin-top: 16px;
   padding-top: 16px;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--border-color, #e5e7eb);
 }
 
 .btn-check-status {
@@ -227,7 +232,7 @@
 }
 
 .quota-info {
-  background: #f9fafb;
+  background: var(--bg-secondary, #f9fafb);
   border-radius: 8px;
   padding: 12px;
   margin-top: 8px;
@@ -261,67 +266,91 @@
   font-size: 0.9rem;
 }
 
-.models-list {
+.api-key-manager .models-list {
   margin-top: 12px;
 }
 
-.models-header {
+.api-key-manager .models-header {
   font-weight: 600;
   font-size: 0.875rem;
-  color: #374151;
+  color: var(--text-primary, #374151);
   margin-bottom: 8px;
 }
 
-.model-item {
+.api-key-manager .model-item {
   display: flex;
+  flex-direction: row;
   justify-content: space-between;
   align-items: center;
-  padding: 6px 10px;
-  margin-bottom: 4px;
+  width: 100%;
+  padding: 4px 10px;
+  margin-bottom: 2px;
   border-radius: 4px;
   font-size: 0.8rem;
+  gap: 12px;
+  background: transparent;
+  color: var(--text-primary, #1f2937);
 }
 
-.model-item.available {
-  background: #d1fae5;
-  color: #065f46;
+.api-key-manager .model-item.available {
+  background: transparent;
+  color: var(--text-primary, #1f2937);
 }
 
-.model-item.blocked {
-  background: #fee2e2;
-  color: #991b1b;
+.api-key-manager .model-item.blocked {
+  background: transparent;
+  color: #ef4444;
 }
 
-.model-item.unknown {
-  background: #fef3c7;
-  color: #92400e;
+.api-key-manager .model-item.unknown {
+  background: transparent;
+  color: #f59e0b;
 }
 
-.model-name {
+.api-key-manager .model-item:hover {
+  background: transparent;
+}
+
+.api-key-manager .model-item:hover .model-name,
+.api-key-manager .model-item:hover .model-badge {
+  color: var(--text-primary, #1f2937);
+}
+
+.api-key-manager .model-name {
   font-family: monospace;
   font-weight: 500;
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-primary, #1f2937);
 }
 
-.model-badge {
+.api-key-manager .model-badge {
   font-size: 0.75rem;
   font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+  display: inline-block;
+  color: var(--text-primary, #1f2937);
 }
 
-.model-category-group {
+.api-key-manager .model-category-group {
   margin-bottom: 16px;
   padding: 12px;
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
+  background: var(--bg-card, #ffffff);
+  border: 1px solid var(--border-color, #e5e7eb);
   border-radius: 8px;
 }
 
-.model-category-header {
+.api-key-manager .model-category-header {
   font-weight: 600;
   font-size: 0.9rem;
   color: #7c3aed;
   margin-bottom: 8px;
   padding-bottom: 6px;
-  border-bottom: 2px solid #e5e7eb;
+  border-bottom: 2px solid var(--border-color, #e5e7eb);
 }
 
 .quota-error {
@@ -342,4 +371,49 @@
   border-radius: 6px;
   font-size: 0.875rem;
   text-align: center;
+}
+
+/* Tema escuro */
+[data-theme="dark"] .api-key-item {
+  background: var(--bg-card, #1f2937);
+  border-color: var(--border-color, #374151);
+}
+
+[data-theme="dark"] .api-key-add {
+  background: var(--bg-card, #1f2937);
+  border-color: var(--border-color, #374151);
+}
+
+[data-theme="dark"] .quota-info {
+  background: var(--bg-secondary, #111827);
+}
+
+[data-theme="dark"] .api-key-manager .model-category-group {
+  background: var(--bg-secondary, #111827);
+  border-color: var(--border-color, #374151);
+}
+
+[data-theme="dark"] .api-key-manager .model-category-header {
+  border-color: var(--border-color, #374151);
+}
+
+[data-theme="dark"] .quota-status.valid {
+  background: rgba(16, 185, 129, 0.2);
+  color: #10b981;
+}
+
+[data-theme="dark"] .quota-status.invalid {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+}
+
+[data-theme="dark"] .quota-error {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+  border-color: #ef4444;
+}
+
+[data-theme="dark"] .quota-info-text {
+  background: rgba(16, 185, 129, 0.2);
+  color: #10b981;
 }

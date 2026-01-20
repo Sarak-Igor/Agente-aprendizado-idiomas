@@ -66,11 +66,6 @@ export const MainApp = () => {
   };
 
   const handleUrlSubmit = async (url: string) => {
-    if (!geminiApiKey) {
-      alert('Por favor, configure sua chave de API do Gemini primeiro.');
-      return;
-    }
-
     setYoutubeUrl(url);
     const extractedId = extractVideoId(url);
     
@@ -99,7 +94,7 @@ export const MainApp = () => {
             youtube_url: url,
             source_language: sourceLanguage,
             target_language: targetLanguage,
-            gemini_api_key: geminiApiKey,
+            gemini_api_key: geminiApiKey || null,
             force_retranslate: true,
           });
           setJobId(response.job_id);
@@ -117,7 +112,7 @@ export const MainApp = () => {
         youtube_url: url,
         source_language: sourceLanguage,
         target_language: targetLanguage,
-        gemini_api_key: geminiApiKey,
+        gemini_api_key: geminiApiKey || null,
       });
 
       setJobId(response.job_id);
