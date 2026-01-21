@@ -200,6 +200,11 @@ export interface ApiKeyStatus {
     blocked: boolean;
     status: string;
     category?: string; // text, reasoning, audio, video, code, multimodal
+    tier?: string; // "free", "paid", "unknown"
+    tier_reason?: string; // Motivo curto quando tier="unknown"
+    quota_used?: number; // Tokens usados (free)
+    quota_limit?: number; // Limite tokens (free)
+    cost_last_24h?: number; // Custo $ (paid)
   }>;
   available_models: string[];
   blocked_models: string[];
@@ -211,6 +216,11 @@ export interface ApiKeyStatus {
       blocked: boolean;
       status: string;
       category?: string;
+      tier?: string;
+      tier_reason?: string;
+      quota_used?: number;
+      quota_limit?: number;
+      cost_last_24h?: number;
     }>;
   };
 }

@@ -7,6 +7,7 @@ from app.services.encryption import encryption_service
 from app.services.gemini_service import GeminiService
 from app.services.model_router import ModelRouter
 from app.services.api_status_checker import ApiStatusChecker
+from app.services.model_tier_detector import get_tier_detector
 from typing import List, Optional, Dict
 from pydantic import BaseModel
 import logging
@@ -21,6 +22,33 @@ class ModelStatus(BaseModel):
     blocked: bool
     status: str
     category: Optional[str] = None  # text, reasoning, audio, video, code, multimodal
+    tier: Optional[str] = None  # "free", "paid", "unknown"
+    tier_reason: Optional[str] = None  # Motivo curto quando tier="unknown": "Não testável", "Indisponível", "Ambíguo"
+    quota_used: Optional[int] = None  # Tokens usados (free)
+    quota_limit: Optional[int] = None  # Limite tokens (free)
+    cost_last_24h: Optional[float] = None  # Custo $ (paid)
+
+
+def _get_unknown_tier_reason(tier_info) -> str:
+    """
+    Motivo curto para tier desconhecido.
+    Regras:
+    - Não testável: método indica incompatibilidade com endpoint (not_supported / not_testable)
+    - Indisponível: tier_info.available == False
+    - Ambíguo: fallback quando nada disso se aplica
+    """
+    try:
+        detection_method = getattr(tier_info, "detection_method", None) or ""
+        available = getattr(tier_info, "available", True)
+
+        method_lower = str(detection_method).lower()
+        if "not_testable" in method_lower or "not_supported" in method_lower:
+            return "Não testável"
+        if available is False:
+            return "Indisponível"
+        return "Ambíguo"
+    except Exception:
+        return "Ambíguo"
 
 
 class ApiKeyStatus(BaseModel):
@@ -493,8 +521,142 @@ async def check_saved_api_key_status(
                         models_by_category[category] = []
                     models_by_category[category].append(model_status)
                 
+                # Detecta tiers dos modelos
+                try:
+                    logger.info(f"Iniciando detecção de tiers para {len(models_status)} modelos do serviço {service}")
+                    tier_detector = get_tier_detector()
+                    
+                    # Para Gemini, limpa cache se só tem "unknown" para forçar nova detecção
+                    if service == "gemini":
+                        cached = tier_detector.get_cached_tiers(str(current_user.id))
+                        if cached:
+                            gemini_tiers = {k: v for k, v in cached.items() if k.startswith("gemini:")}
+                            valid_gemini_tiers = {k: v for k, v in gemini_tiers.items() if v.tier and v.tier != "unknown"}
+                            if not valid_gemini_tiers and gemini_tiers:
+                                logger.info(f"Cache Gemini contém apenas 'unknown', limpando para forçar nova detecção")
+                                tier_detector.clear_cache(str(current_user.id))
+                    
+                    api_keys_data = [{
+                        'service': service,
+                        'api_key': decrypted_key,
+                        'models': [{'name': ms.name, 'category': ms.category or 'text'} for ms in models_status]
+                    }]
+                    tiers = await tier_detector.detect_all_models(str(current_user.id), api_keys_data)
+                    
+                    logger.info(f"Tiers detectados: {len(tiers)} modelos processados")
+                    if tiers:
+                        sample_keys = list(tiers.keys())[:5]
+                        logger.info(f"Exemplos de chaves de tier: {sample_keys}")
+                        for key in sample_keys[:3]:
+                            if key in tiers:
+                                tier_info = tiers[key]
+                                logger.info(f"  {key}: tier={tier_info.tier}, método={tier_info.detection_method}, confiança={tier_info.confidence}")
+                    
+                    # Conta tiers por tipo para debug
+                    tier_counts = {}
+                    for tier_info in tiers.values():
+                        tier_type = tier_info.tier or "null"
+                        tier_counts[tier_type] = tier_counts.get(tier_type, 0) + 1
+                    logger.info(f"Distribuição de tiers: {tier_counts}")
+                    
+                    # Mescla informações de tier com modelos existentes
+                    # Cria novos objetos ModelStatus com tier atualizado
+                    updated_models_status = []
+                    for model_status in models_status:
+                        tier_key = f"{service}:{model_status.name}"
+                        if tier_key in tiers:
+                            tier_info = tiers[tier_key]
+                            # Cria novo ModelStatus com tier atualizado
+                            updated_model = ModelStatus(
+                                name=model_status.name,
+                                available=model_status.available,
+                                blocked=model_status.blocked,
+                                status=model_status.status,
+                                category=model_status.category,
+                                tier=tier_info.tier,
+                                tier_reason=_get_unknown_tier_reason(tier_info) if tier_info.tier == "unknown" else None,
+                                quota_used=tier_info.quota_info.get('remaining_tokens') if tier_info.quota_info else None,
+                                quota_limit=tier_info.quota_info.get('limit_tokens') if tier_info.quota_info else None,
+                                cost_last_24h=None if tier_info.cost_info else None
+                            )
+                            updated_models_status.append(updated_model)
+                            if tier_info.tier != "unknown":
+                                logger.debug(f"Tier para {model_status.name}: {tier_info.tier} (método: {tier_info.detection_method})")
+                        else:
+                            # Se não encontrou tier, marca como unknown para garantir que sempre tenha um valor
+                            updated_model = ModelStatus(
+                                name=model_status.name,
+                                available=model_status.available,
+                                blocked=model_status.blocked,
+                                status=model_status.status,
+                                category=model_status.category,
+                                tier="unknown",
+                                tier_reason="Ambíguo"
+                            )
+                            updated_models_status.append(updated_model)
+                            logger.warning(f"Tier não encontrado para {model_status.name} (chave esperada: {tier_key})")
+                    
+                    models_status = updated_models_status
+                    
+                    # Cria um mapa de modelos atualizados por nome para reutilizar os mesmos objetos
+                    models_map = {ms.name: ms for ms in models_status}
+                    
+                    # Atualiza models_by_category usando os mesmos objetos atualizados de models_status
+                    updated_models_by_category = {}
+                    for category, category_models in models_by_category.items():
+                        updated_category_models = []
+                        for model_status in category_models:
+                            # Usa o modelo atualizado de models_status se existir
+                            if model_status.name in models_map:
+                                updated_category_models.append(models_map[model_status.name])
+                            else:
+                                # Se não encontrou, cria um modelo com tier unknown
+                                updated_model = ModelStatus(
+                                    name=model_status.name,
+                                    available=model_status.available,
+                                    blocked=model_status.blocked,
+                                    status=model_status.status,
+                                    category=model_status.category,
+                                    tier="unknown"
+                                )
+                                updated_category_models.append(updated_model)
+                        updated_models_by_category[category] = updated_category_models
+                    
+                    models_by_category = updated_models_by_category
+                    models_with_tier = sum(1 for m in models_status if m.tier and m.tier != "unknown")
+                    logger.info(f"Tiers mesclados com sucesso. {models_with_tier} modelos com tier definido (não-unknown), {len(models_status)} total")
+                except Exception as tier_error:
+                    logger.error(f"Erro ao detectar tiers: {tier_error}", exc_info=True)
+                    # Em caso de erro, marca todos como unknown para garantir que sempre tenha um valor
+                    updated_models_status = []
+                    for model_status in models_status:
+                        updated_model = ModelStatus(
+                            name=model_status.name,
+                            available=model_status.available,
+                            blocked=model_status.blocked,
+                            status=model_status.status,
+                            category=model_status.category,
+                            tier="unknown"
+                        )
+                        updated_models_status.append(updated_model)
+                    models_status = updated_models_status
+                    
+                    # Atualiza models_by_category também
+                    models_map = {ms.name: ms for ms in models_status}
+                    updated_models_by_category = {}
+                    for category, category_models in models_by_category.items():
+                        updated_category_models = [models_map.get(ms.name, ms) for ms in category_models]
+                        updated_models_by_category[category] = updated_category_models
+                    models_by_category = updated_models_by_category
+                
                 # Se há modelos disponíveis (validados ou não bloqueados), chave é válida
                 has_available = len(available_models) > 0 or len(blocked_models) < len(all_models)
+                
+                # Debug: verifica se tiers estão presentes
+                models_with_tier = [m for m in models_status if m.tier]
+                logger.info(f"Retornando {len(models_status)} modelos, {len(models_with_tier)} com tier definido")
+                if models_with_tier:
+                    logger.info(f"Exemplo de modelo com tier: {models_with_tier[0].name} - {models_with_tier[0].tier}")
                 
                 return ApiKeyStatus(
                     service=service,
@@ -540,10 +702,79 @@ async def check_saved_api_key_status(
                     name=model.get("name", "unknown"),
                     available=model.get("available", False),
                     blocked=model.get("blocked", False),
-                    status=model.get("status", "unknown")
+                    status=model.get("status", "unknown"),
+                    category=model.get("category")
                 )
                 for model in status_result.get("models_status", [])
             ]
+            
+            # Detecta tiers dos modelos
+            try:
+                logger.info(f"Iniciando detecção de tiers para {service}: {len(models_status)} modelos")
+                tier_detector = get_tier_detector()
+                api_keys_data = [{
+                    'service': service,
+                    'api_key': decrypted_key,
+                    'models': [{'name': ms.name, 'category': ms.category or 'text'} for ms in models_status]
+                }]
+                tiers = await tier_detector.detect_all_models(str(current_user.id), api_keys_data)
+                
+                logger.info(f"Tiers detectados para {service}: {len(tiers)} modelos processados")
+                if tiers:
+                    sample_keys = list(tiers.keys())[:3]
+                    logger.info(f"Exemplos de chaves de tier: {sample_keys}")
+                    for key in sample_keys:
+                        logger.info(f"  {key}: tier={tiers[key].tier}, método={tiers[key].detection_method}")
+                
+                # Mescla informações de tier criando novos objetos
+                updated_models_status = []
+                for model_status in models_status:
+                    tier_key = f"{service}:{model_status.name}"
+                    if tier_key in tiers:
+                        tier_info = tiers[tier_key]
+                        # Cria novo ModelStatus com tier atualizado
+                        updated_model = ModelStatus(
+                            name=model_status.name,
+                            available=model_status.available,
+                            blocked=model_status.blocked,
+                            status=model_status.status,
+                            category=model_status.category,
+                            tier=tier_info.tier,
+                            quota_used=tier_info.quota_info.get('remaining_tokens') if tier_info.quota_info else None,
+                            quota_limit=tier_info.quota_info.get('limit_tokens') if tier_info.quota_info else None,
+                            cost_last_24h=None if tier_info.cost_info else None
+                        )
+                        updated_models_status.append(updated_model)
+                        logger.debug(f"Tier para {model_status.name}: {tier_info.tier} (método: {tier_info.detection_method})")
+                    else:
+                        # Se não encontrou tier, cria com unknown
+                        updated_model = ModelStatus(
+                            name=model_status.name,
+                            available=model_status.available,
+                            blocked=model_status.blocked,
+                            status=model_status.status,
+                            category=model_status.category,
+                            tier="unknown"
+                        )
+                        updated_models_status.append(updated_model)
+                        logger.warning(f"Tier não encontrado para {model_status.name} (chave esperada: {tier_key})")
+                
+                models_status = updated_models_status
+            except Exception as tier_error:
+                logger.error(f"Erro ao detectar tiers para {service}: {tier_error}", exc_info=True)
+                # Em caso de erro, marca todos como unknown
+                updated_models_status = []
+                for model_status in models_status:
+                    updated_model = ModelStatus(
+                        name=model_status.name,
+                        available=model_status.available,
+                        blocked=model_status.blocked,
+                        status=model_status.status,
+                        category=model_status.category,
+                        tier="unknown"
+                    )
+                    updated_models_status.append(updated_model)
+                models_status = updated_models_status
             
             return ApiKeyStatus(
                 service=service,
@@ -574,3 +805,88 @@ async def check_saved_api_key_status(
             error=f"Erro ao verificar status: {str(e)}",
             models_by_category=None
         )
+
+
+@router.get("/{service}/model-tiers")
+async def get_model_tiers(
+    service: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Retorna tiers de todos os modelos de um serviço específico
+    """
+    try:
+        api_key = db.query(ApiKey).filter(
+            ApiKey.user_id == current_user.id,
+            ApiKey.service == service
+        ).first()
+        
+        if not api_key:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Chave de API para serviço '{service}' não encontrada"
+            )
+        
+        tier_detector = get_tier_detector()
+        cached_tiers = tier_detector.get_cached_tiers(str(current_user.id))
+        
+        if cached_tiers:
+            # Filtra apenas modelos do serviço solicitado
+            service_tiers = {
+                k.replace(f"{service}:", ""): v.to_dict()
+                for k, v in cached_tiers.items()
+                if k.startswith(f"{service}:")
+            }
+            return {"service": service, "tiers": service_tiers}
+        else:
+            return {"service": service, "tiers": {}, "message": "Cache vazio. Execute refresh-tiers primeiro."}
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Erro ao obter tiers: {e}")
+        raise HTTPException(status_code=500, detail=f"Erro ao obter tiers: {str(e)}")
+
+
+@router.post("/{service}/refresh-tiers")
+async def refresh_model_tiers(
+    service: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Força refresh do cache de tiers para um serviço específico
+    Limpa o cache e força nova detecção
+    """
+    try:
+        api_key = db.query(ApiKey).filter(
+            ApiKey.user_id == current_user.id,
+            ApiKey.service == service
+        ).first()
+        
+        if not api_key:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Chave de API para serviço '{service}' não encontrada"
+            )
+        
+        # Limpa cache para forçar refresh
+        tier_detector = get_tier_detector()
+        tier_detector.clear_cache(str(current_user.id))
+        logger.info(f"Cache limpo para usuário {current_user.id}, serviço {service}")
+        
+        # Obtém status atual dos modelos (isso vai disparar detecção de tier)
+        status = await check_saved_api_key_status(service, current_user, db)
+        
+        return {
+            "service": service,
+            "message": "Tiers atualizados com sucesso",
+            "models_processed": len(status.models_status)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Erro ao atualizar tiers: {e}")
+        raise HTTPException(status_code=500, detail=f"Erro ao atualizar tiers: {str(e)}")

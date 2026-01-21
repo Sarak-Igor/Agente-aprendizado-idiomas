@@ -12,6 +12,59 @@ class ApiStatusChecker:
     """Classe base para verificação de status de APIs"""
     
     @staticmethod
+    def _extract_openrouter_free_models(models_data: object, limit: int) -> List[str]:
+        """
+        Extrai apenas modelos free do payload do OpenRouter.
+
+        Critérios:
+        - id termina com ':free' OU pricing (prompt/completion) == 0
+        """
+        if not isinstance(limit, int) or limit <= 0:
+            limit = 50
+
+        data = []
+        if isinstance(models_data, dict):
+            data = models_data.get("data", []) or []
+        elif isinstance(models_data, list):
+            data = models_data
+
+        if not isinstance(data, list):
+            return []
+
+        free_ids: List[str] = []
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            model_id = item.get("id")
+            if not isinstance(model_id, str) or not model_id:
+                continue
+
+            # Regra 1: sufixo :free
+            if model_id.endswith(":free"):
+                free_ids.append(model_id)
+                if len(free_ids) >= limit:
+                    break
+                continue
+
+            # Regra 2: pricing zero
+            pricing = item.get("pricing") or {}
+            if isinstance(pricing, dict):
+                prompt = pricing.get("prompt", "0")
+                completion = pricing.get("completion", "0")
+                try:
+                    prompt_val = float(prompt) if prompt is not None else 0.0
+                    completion_val = float(completion) if completion is not None else 0.0
+                except (ValueError, TypeError):
+                    continue
+
+                if prompt_val == 0.0 and completion_val == 0.0:
+                    free_ids.append(model_id)
+                    if len(free_ids) >= limit:
+                        break
+
+        return free_ids
+
+    @staticmethod
     async def check_openrouter_status(api_key: str) -> Dict:
         """
         Verifica status da chave OpenRouter
@@ -19,9 +72,6 @@ class ApiStatusChecker:
         """
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
-                # Primeiro, tenta listar modelos públicos (sem auth) para ver estrutura
-                # Depois, tenta com auth para validar a chave
-                
                 # Tenta fazer uma chamada de teste muito pequena para validar a chave
                 test_response = await client.post(
                     "https://openrouter.ai/api/v1/chat/completions",
@@ -44,27 +94,21 @@ class ApiStatusChecker:
                     models_response = await client.get(
                         "https://openrouter.ai/api/v1/models",
                         headers={
+                            "Authorization": f"Bearer {api_key}",
                             "HTTP-Referer": "https://github.com",
                             "X-Title": "Translation System"
                         }
                     )
                     
-                    models = []
+                    free_limit = 100
+                    free_models: List[str] = []
+                    total_models = None
                     if models_response.status_code == 200:
-                        models_data = models_response.json()
-                        if isinstance(models_data, dict):
-                            models = models_data.get("data", [])
-                        elif isinstance(models_data, list):
-                            models = models_data
-                    
-                    # Limita a modelos mais populares
-                    popular_models = [
-                        "openai/gpt-4",
-                        "openai/gpt-3.5-turbo",
-                        "anthropic/claude-3-haiku",
-                        "google/gemini-pro",
-                        "meta-llama/llama-3-8b-instruct"
-                    ]
+                        models_json = models_response.json()
+                        # Tenta capturar total (quando disponível)
+                        if isinstance(models_json, dict) and isinstance(models_json.get("data"), list):
+                            total_models = len(models_json.get("data") or [])
+                        free_models = ApiStatusChecker._extract_openrouter_free_models(models_json, limit=free_limit)
                     
                     return {
                         "is_valid": True,
@@ -75,12 +119,15 @@ class ApiStatusChecker:
                                 "blocked": False,
                                 "status": "available"
                             }
-                            for model_id in popular_models
+                            for model_id in free_models
                         ],
-                        "available_models": popular_models,
+                        "available_models": free_models,
                         "blocked_models": [],
                         "error": None,
-                        "info": "Chave válida. OpenRouter oferece acesso a múltiplos modelos."
+                        "info": (
+                            f"Chave válida. OpenRouter: retornando {len(free_models)} modelos free"
+                            + (f" (limitado a {free_limit} de {total_models})" if total_models is not None else f" (limitado a {free_limit})")
+                        )
                     }
                 elif test_response.status_code == 401:
                     return {
@@ -218,7 +265,8 @@ class ApiStatusChecker:
                     
                     # Extrai nomes dos modelos
                     model_names = []
-                    for model in models[:15]:  # Limita a 15 modelos
+                    max_models = 100
+                    for model in models[:max_models]:  # Limita para evitar payload enorme
                         if isinstance(model, dict):
                             name = model.get("id") or model.get("name") or model.get("model_id")
                         elif isinstance(model, str):
@@ -243,7 +291,10 @@ class ApiStatusChecker:
                         "available_models": model_names,
                         "blocked_models": [],
                         "error": None,
-                        "info": f"{len(model_names)} modelos disponíveis"
+                        "info": (
+                            f"{len(model_names)} modelos retornados"
+                            + (f" (mostrando {max_models} de {len(models)})" if isinstance(models, list) and len(models) > max_models else "")
+                        )
                     }
                 elif response.status_code == 401:
                     return {

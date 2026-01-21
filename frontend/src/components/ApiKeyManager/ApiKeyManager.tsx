@@ -143,6 +143,20 @@ export const ApiKeyManager = () => {
         status = await apiKeysApi.checkStatus(apiKey.key, apiKey.service);
       }
       
+      // Debug: verifica se tier está presente
+      console.log('Status recebido:', status);
+      if (status.models_status && status.models_status.length > 0) {
+        console.log('Primeiro modelo:', status.models_status[0]);
+        console.log('Tier do primeiro modelo:', status.models_status[0].tier);
+      }
+      if (status.models_by_category) {
+        console.log('Models by category:', Object.keys(status.models_by_category));
+        const firstCategory = Object.keys(status.models_by_category)[0];
+        if (firstCategory && status.models_by_category[firstCategory].length > 0) {
+          console.log('Primeiro modelo na categoria:', status.models_by_category[firstCategory][0]);
+        }
+      }
+      
       // Atualiza status usando função de callback
       setApiKeys(prevKeys => prevKeys.map(k => 
         k.id === apiKey.id || (k.service === apiKey.service && k.key === apiKey.key)
@@ -302,15 +316,42 @@ export const ApiKeyManager = () => {
                                   <div className="model-category-header">
                                     {categoryLabels[category] || category}
                                   </div>
-                                  {models.map((model) => (
-                                    <div key={model.name} className={`model-item ${model.status}`}>
-                                      <span className="model-name">{model.name}</span>
-                                      <span className="model-badge">
-                                        {model.available && !model.blocked ? '✅ Disponível' : 
-                                         model.blocked ? '❌ Bloqueado' : '⚠️ Desconhecido'}
-                                      </span>
-                                    </div>
-                                  ))}
+                                  {models.map((model) => {
+                                    // Debug: log do primeiro modelo
+                                    if (models.indexOf(model) === 0) {
+                                      console.log('Modelo exemplo:', model);
+                                      console.log('Tier:', model.tier);
+                                    }
+                                    
+                                    return (
+                                      <div key={model.name} className={`model-item ${model.status}`}>
+                                        <span className="model-name">{model.name}</span>
+                                        <span className="model-badge">
+                                          {model.available && !model.blocked ? '✅ Disponível' : 
+                                           model.blocked ? '❌ Bloqueado' : '⚠️ Desconhecido'}
+                                          {(model.tier !== undefined && model.tier !== null && model.tier !== '') && (
+                                            <span className="model-tier-info">
+                                              {model.tier === 'free' && model.quota_limit && (
+                                                ` | 🆓 Free (${model.quota_used || 0}/${model.quota_limit} tokens)`
+                                              )}
+                                              {model.tier === 'free' && !model.quota_limit && (
+                                                ' | 🆓 Free'
+                                              )}
+                                              {model.tier === 'paid' && model.cost_last_24h !== undefined && model.cost_last_24h !== null && typeof model.cost_last_24h === 'number' && (
+                                                ` | 💰 Paid ($${model.cost_last_24h.toFixed(2)} últimas 24h)`
+                                              )}
+                                              {model.tier === 'paid' && (model.cost_last_24h === undefined || model.cost_last_24h === null) && (
+                                                ' | 💰 Paid'
+                                              )}
+                                              {model.tier === 'unknown' && (
+                                                ` | ❓ Tier desconhecido${model.tier_reason ? ` (${model.tier_reason})` : ''}`
+                                              )}
+                                            </span>
+                                          )}
+                                        </span>
+                                      </div>
+                                    );
+                                  })}
                                 </div>
                               );
                             });
