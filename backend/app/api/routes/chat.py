@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.database import get_db
 from app.api.routes.auth import get_current_user
-from app.models.database import User, ChatSession, ChatMessage, UserProfile, ApiKey
+from app.models.database import User, UserProfile, ChatSession, ChatMessage, ApiKey
 from app.schemas.schemas import (
     ChatSessionCreate,
     ChatSessionResponse,
@@ -15,11 +15,11 @@ from app.schemas.schemas import (
     ChatSessionWithMessages,
     UpdateSessionConfigRequest
 )
-from app.services.chat_router import ChatRouter
-from app.services.chat_service import ChatService
+from app.modules.user_intelligence.services.chat_router import ChatRouter
+from app.modules.user_intelligence.services.chat_service import ChatService
 from app.services.gemini_service import GeminiService
-from app.services.model_router import ModelRouter
-from app.services.token_usage_service import TokenUsageService
+from app.modules.core_llm.services.orchestrator.router import ModelRouter
+from app.modules.core_llm.services.usage.token_usage_service import TokenUsageService
 from app.services.encryption import encryption_service
 from uuid import UUID
 import logging
@@ -420,7 +420,7 @@ async def get_available_models(
         all_models = chat_router.get_all_available_models()
         
         # Para serviços não-Gemini, tenta obter modelos via API async se cache vazio
-        from app.services.api_status_checker import ApiStatusChecker
+        from app.modules.core_llm.api.status_checker import ApiStatusChecker
         
         # OpenRouter
         if 'openrouter' in chat_router.available_services and not all_models.get('openrouter'):

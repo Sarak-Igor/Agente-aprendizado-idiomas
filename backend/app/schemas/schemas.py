@@ -110,8 +110,8 @@ class ChatMessageResponse(BaseModel):
     content_type: str
     audio_url: Optional[str] = None
     transcription: Optional[str] = None
-    grammar_errors: Optional[dict] = None
-    vocabulary_suggestions: Optional[dict] = None
+    grammar_errors: Optional[List[dict]] = None
+    vocabulary_suggestions: Optional[List[dict]] = None
     difficulty_score: Optional[float] = None
     topics: Optional[List[str]] = None
     analysis_metadata: Optional[dict] = None

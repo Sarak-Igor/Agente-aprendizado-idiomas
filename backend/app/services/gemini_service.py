@@ -1,8 +1,8 @@
 from google import genai
 from typing import List, Optional, Callable
 from app.schemas.schemas import SubtitleSegment, TranslationSegment
-from app.services.model_router import ModelRouter
-from app.services.token_usage_service import TokenUsageService
+from app.modules.core_llm.services.orchestrator.router import ModelRouter
+from app.modules.core_llm.services.usage.token_usage_service import TokenUsageService
 from sqlalchemy.orm import Session
 import time
 import re

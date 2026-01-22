@@ -6,7 +6,8 @@ from typing import Optional
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from sqlalchemy.orm import Session
-from app.models.database import User, UserProfile
+from app.models.database import User
+from app.modules.user_intelligence.models.models import UserProfile
 from app.config import settings
 import secrets
 import logging

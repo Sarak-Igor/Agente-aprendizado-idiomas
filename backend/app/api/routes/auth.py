@@ -15,7 +15,8 @@ from app.services.auth_service import (
     get_user_by_id,
     ACCESS_TOKEN_EXPIRE_MINUTES
 )
-from app.models.database import UserProfile
+from app.models.database import User, ApiKey
+from app.modules.user_intelligence.models.models import UserProfile
 import logging
 
 logger = logging.getLogger(__name__)

@@ -5,7 +5,8 @@ Execute: python init_db.py
 from app.database import engine, Base
 from app.models.database import (
     Video, Translation, ApiKey, Job, TokenUsage,
-    User, UserProfile, ChatSession, ChatMessage
+    User, UserProfile, ChatSession, ChatMessage,
+    ModelCatalog, ModelProviderMapping
 )
 
 if __name__ == "__main__":

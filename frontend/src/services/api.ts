@@ -1,6 +1,9 @@
 import axios from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+// Em alguns ambientes Windows, `localhost` pode resolver primeiro para IPv6 (::1),
+// enquanto o backend do Uvicorn está ouvindo apenas em 127.0.0.1. Isso causa erro
+// de rede no login (sem response). Usamos 127.0.0.1 como fallback seguro.
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -453,6 +456,28 @@ export interface UpdateSessionConfigRequest {
   teaching_language?: string;
   custom_prompt?: string;
 }
+
+export interface CatalogStatusResponse {
+  is_populated: boolean;
+  total_models: number;
+  last_updated: string | null;
+  source: string | null;
+  api_available: boolean;
+  api_error: string | null;
+  using_mock_data: boolean;
+}
+
+export const modelCatalogApi = {
+  getStatus: async (): Promise<CatalogStatusResponse> => {
+    const response = await api.get<CatalogStatusResponse>('/api/model-catalog/status');
+    return response.data;
+  },
+
+  sync: async (): Promise<{ success: boolean; stats: any; message: string }> => {
+    const response = await api.post<{ success: boolean; stats: any; message: string }>('/api/model-catalog/sync');
+    return response.data;
+  },
+};
 
 export const chatApi = {
   createSession: async (data: ChatSessionCreate): Promise<ChatSession> => {

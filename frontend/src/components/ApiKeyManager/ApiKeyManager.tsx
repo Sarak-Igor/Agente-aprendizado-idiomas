@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { apiKeysApi, ApiKeyStatus, ApiKeyResponse } from '../../services/api';
+import { apiKeysApi, ApiKeyStatus, ApiKeyResponse, modelCatalogApi, CatalogStatusResponse } from '../../services/api';
 import './ApiKeyManager.css';
 
 interface ApiKey {
@@ -23,10 +23,21 @@ export const ApiKeyManager = () => {
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [newKey, setNewKey] = useState({ service: 'gemini', key: '' });
+  const [catalogStatus, setCatalogStatus] = useState<CatalogStatusResponse | null>(null);
 
   useEffect(() => {
     loadApiKeys();
+    checkCatalogStatus();
   }, []);
+
+  const checkCatalogStatus = async () => {
+    try {
+      const status = await modelCatalogApi.getStatus();
+      setCatalogStatus(status);
+    } catch (error) {
+      console.error('Erro ao verificar status do catálogo:', error);
+    }
+  };
 
   const loadApiKeys = async () => {
     try {
@@ -185,6 +196,63 @@ export const ApiKeyManager = () => {
 
   return (
     <div className="api-key-manager">
+      {/* Notificação sobre status do catálogo */}
+      {catalogStatus && (!catalogStatus.api_available || catalogStatus.using_mock_data || catalogStatus.api_error) && (
+        <div className="catalog-warning" style={{
+          padding: '12px 16px',
+          marginBottom: '20px',
+          borderRadius: '8px',
+          backgroundColor: 'var(--bg-warning, #fff3cd)',
+          border: '1px solid var(--border-warning, #ffc107)',
+          color: 'var(--text-primary)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px'
+        }}>
+          <span style={{ fontSize: '20px' }}>⚠️</span>
+          <div style={{ flex: 1 }}>
+            <strong>Catálogo de Modelos:</strong>
+            {catalogStatus.using_mock_data && (
+              <div>API do Chatbot Arena não disponível. Usando dados mockados para desenvolvimento.</div>
+            )}
+            {catalogStatus.api_error && !catalogStatus.using_mock_data && (
+              <div>{catalogStatus.api_error}</div>
+            )}
+            {!catalogStatus.is_populated && (
+              <div>Catálogo ainda não foi populado.</div>
+            )}
+            {catalogStatus.total_models > 0 && (
+              <div style={{ fontSize: '0.9em', marginTop: '4px', opacity: 0.8 }}>
+                {catalogStatus.total_models} modelo(s) cadastrado(s)
+                {catalogStatus.last_updated && (
+                  <> • Última atualização: {new Date(catalogStatus.last_updated).toLocaleString('pt-BR')}</>
+                )}
+              </div>
+            )}
+          </div>
+          <button
+            onClick={async () => {
+              try {
+                await modelCatalogApi.sync();
+                await checkCatalogStatus();
+                alert('Catálogo sincronizado com sucesso!');
+              } catch (error: any) {
+                alert('Erro ao sincronizar catálogo: ' + (error.response?.data?.detail || error.message));
+              }
+            }}
+            style={{
+              padding: '6px 12px',
+              borderRadius: '4px',
+              border: '1px solid var(--border-warning, #ffc107)',
+              backgroundColor: 'var(--bg-card)',
+              color: 'var(--text-primary)',
+              cursor: 'pointer'
+            }}
+          >
+            Sincronizar
+          </button>
+        </div>
+      )}
       <div className="api-key-list">
         {apiKeys.map((apiKey) => {
           const serviceInfo = getServiceInfo(apiKey.service);
