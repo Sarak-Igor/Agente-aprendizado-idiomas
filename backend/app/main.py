@@ -21,6 +21,8 @@ from app.api.routes import auth, chat, jobs
 from app.modules.language_learning.api import video, practice
 # Importa rotas modulares do core_llm
 from app.modules.core_llm.api import model_catalog_router, usage_router, api_keys_router
+from app.modules.user_intelligence.api import preferences_router
+from app.modules.agents_factory.api.routes import router as agents_router
 
 Base.metadata.create_all(bind=engine)
 
@@ -86,6 +88,8 @@ app.include_router(chat.router)
 app.include_router(api_keys_router)
 app.include_router(usage_router)
 app.include_router(model_catalog_router)
+app.include_router(preferences_router)
+app.include_router(agents_router)
 
 
 @app.get("/")

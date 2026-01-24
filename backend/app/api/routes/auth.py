@@ -158,5 +158,6 @@ async def get_current_user_profile(
         learning_context=profile.learning_context,
         preferred_learning_style=profile.preferred_learning_style,
         preferred_model=profile.preferred_model,
+        model_preferences=profile.model_preferences,
         created_at=current_user.created_at
     )

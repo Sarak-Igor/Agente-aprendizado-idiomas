@@ -17,12 +17,12 @@ passlib[bcrypt]>=1.7.4
 # Ferramentas de tradução open source
 deep-translator>=1.11.4
 argostranslate>=1.9.0
-# googletrans==4.0.0-rc1  # Comentado devido a conflito com httpx>=0.25.2
-# Nota: googletrans requer httpx==0.13.3, mas outras dependências precisam httpx>=0.25.2
-# Se necessário, instale googletrans em ambiente separado ou use deep-translator como alternativa
-# Para obter título do YouTube
+# googletrans==4.0.0-rc1
 yt-dlp>=2023.12.30
 beautifulsoup4>=4.12.0
 requests>=2.31.0
 Pillow>=10.0.0
 gradio-client>=0.9.0
+chromadb>=0.4.24
+pypdf>=4.0.0
+sentence-transformers>=2.2.2

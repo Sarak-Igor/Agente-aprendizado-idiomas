@@ -89,3 +89,4 @@ class User(Base):
 
 from app.modules.user_intelligence.models.models import UserProfile, ChatSession, ChatMessage
 from app.modules.core_llm.models.models import ModelCatalog, ModelProviderMapping
+from app.modules.agents_factory.models.models import Agent, AgentSession
