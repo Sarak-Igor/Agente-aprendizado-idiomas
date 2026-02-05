@@ -73,6 +73,13 @@ pip install -r requirements-ml.txt
 python scripts/setup_db.py
 ```
 
+**Nota sobre variáveis de ambiente**
+
+- Gere um `.env` local a partir do arquivo de exemplo:
+  - WSL/macOS: `cp env.example .env`
+  - PowerShell (Windows): `copy env.example .env`
+- Não comite o `.env` no repositório. O `.env.example` deve permanecer no repo como referência.
+
 #### Frontend
 ```bash
 cd frontend
