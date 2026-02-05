@@ -94,6 +94,26 @@ cd ..
 - ✅ Configura banco de dados
 - ✅ Inicia backend e frontend em janelas separadas
 
+### ▶️ Como rodar com Docker (opcional)
+
+Para validar a instalação de dependências em um ambiente isolado e rodar a API em container:
+
+```bash
+# Build da imagem (executar a partir da raiz do repositório)
+docker build -t erp-pc-express:phase2-docker .
+
+# Rodar container (exporá a porta 8000)
+docker run --rm -p 8000:8000 erp-pc-express:phase2-docker
+
+# Ou usando docker-compose
+docker compose up --build
+
+# Teste health (no host)
+curl -i http://127.0.0.1:8000/health
+```
+
+As variáveis de ambiente podem ser passadas ao `docker run` com `-e VAR=value` ou definidas em um `.env` local.
+
 ### 🔧 **Execução Manual (Avançado)**
 
 #### Terminal 1 - Backend
