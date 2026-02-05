@@ -20,10 +20,11 @@
 
 .period-select {
   padding: 8px 12px;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-color);
   border-radius: 6px;
   font-size: 0.875rem;
-  background: white;
+  background: var(--bg-card);
+  color: var(--text-primary);
   cursor: pointer;
   transition: border-color 0.2s;
 }
@@ -41,7 +42,7 @@
 .usage-header h3 {
   margin: 0;
   font-size: 1.5rem;
-  color: #1f2937;
+  color: var(--text-primary);
 }
 
 .refresh-btn {
@@ -62,13 +63,13 @@
 .api-usage-empty {
   text-align: center;
   padding: 64px 24px;
-  color: #6b7280;
+  color: var(--text-secondary);
 }
 
 .api-usage-empty .hint {
   margin-top: 8px;
   font-size: 0.9rem;
-  color: #9ca3af;
+  color: var(--text-muted);
 }
 
 .usage-stats {
@@ -78,11 +79,11 @@
 }
 
 .usage-card {
-  background: white;
-  border: 2px solid #e5e7eb;
+  background: var(--bg-card);
+  border: 2px solid var(--border-color);
   border-radius: 12px;
   padding: 24px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  box-shadow: 0 4px 6px var(--shadow);
 }
 
 .usage-card-header {
@@ -95,7 +96,7 @@
 .usage-card-header h4 {
   margin: 0;
   font-size: 1.25rem;
-  color: #1f2937;
+  color: var(--text-primary);
 }
 
 .usage-badge {
@@ -110,9 +111,19 @@
   color: #065f46;
 }
 
+[data-theme="dark"] .usage-badge.free {
+  background: #065f46;
+  color: #d1fae5;
+}
+
 .usage-badge.paid {
   background: #dbeafe;
   color: #1e40af;
+}
+
+[data-theme="dark"] .usage-badge.paid {
+  background: #1e40af;
+  color: #dbeafe;
 }
 
 .usage-metrics {
@@ -130,18 +141,18 @@
 
 .metric-label {
   font-size: 0.875rem;
-  color: #6b7280;
+  color: var(--text-secondary);
   font-weight: 500;
 }
 
 .metric-value {
   font-size: 1.5rem;
   font-weight: 700;
-  color: #1f2937;
+  color: var(--text-primary);
 }
 
 .usage-quota {
-  border-top: 2px solid #e5e7eb;
+  border-top: 2px solid var(--border-color);
   padding-top: 20px;
 }
 
@@ -151,19 +162,19 @@
   align-items: center;
   margin-bottom: 12px;
   font-size: 0.875rem;
-  color: #6b7280;
+  color: var(--text-secondary);
   font-weight: 500;
 }
 
 .quota-numbers {
   font-weight: 600;
-  color: #1f2937;
+  color: var(--text-primary);
 }
 
 .quota-bar {
   width: 100%;
   height: 12px;
-  background: #e5e7eb;
+  background: var(--border-color);
   border-radius: 6px;
   overflow: hidden;
   margin-bottom: 8px;
@@ -179,7 +190,7 @@
   display: flex;
   justify-content: space-between;
   font-size: 0.8rem;
-  color: #6b7280;
+  color: var(--text-muted);
 }
 
 .quota-percentage {
@@ -187,22 +198,23 @@
 }
 
 .usage-info {
-  background: #f9fafb;
+  background: var(--bg-card);
   border-left: 4px solid #7c3aed;
   border-radius: 8px;
   padding: 20px;
+  border: 1px solid var(--border-color);
 }
 
 .usage-info h4 {
   margin: 0 0 12px 0;
   font-size: 1rem;
-  color: #1f2937;
+  color: var(--text-primary);
 }
 
 .usage-info ul {
   margin: 0;
   padding-left: 20px;
-  color: #6b7280;
+  color: var(--text-secondary);
   line-height: 1.8;
 }
 
@@ -213,13 +225,13 @@
 .models-usage {
   margin-top: 24px;
   padding-top: 20px;
-  border-top: 2px solid #e5e7eb;
+  border-top: 2px solid var(--border-color);
 }
 
 .models-usage h5 {
   margin: 0 0 12px 0;
   font-size: 1rem;
-  color: #1f2937;
+  color: var(--text-primary);
   font-weight: 600;
 }
 
@@ -234,16 +246,24 @@
   justify-content: space-between;
   align-items: center;
   padding: 12px;
-  background: #f9fafb;
+  background: var(--bg-secondary);
   border-radius: 8px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border-color);
 }
 
 .model-name {
-  font-family: monospace;
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: #1f2937;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #7c3aed;
+  /* Usando a cor primária roxa para o nome do modelo */
+  word-break: break-all;
+  max-width: 60%;
+}
+
+[data-theme="dark"] .model-name {
+  color: #a78bfa;
+  /* Cor mais clara para o nome do modelo no tema escuro */
 }
 
 .model-stats {
@@ -254,14 +274,14 @@
 
 .model-tokens {
   font-size: 0.875rem;
-  color: #6b7280;
+  color: var(--text-secondary);
   font-weight: 500;
 }
 
 .model-requests {
   font-size: 0.75rem;
-  color: #9ca3af;
-  background: #e5e7eb;
+  color: var(--text-muted);
+  background: var(--border-color);
   padding: 4px 8px;
   border-radius: 4px;
 }

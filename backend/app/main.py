@@ -23,6 +23,7 @@ from app.modules.language_learning.api import video, practice
 from app.modules.core_llm.api import model_catalog_router, usage_router, api_keys_router
 from app.modules.user_intelligence.api import preferences_router
 from app.modules.agents_factory.api.routes import router as agents_router
+from app.modules.mcp_factory.api.routes import router as mcp_router
 
 Base.metadata.create_all(bind=engine)
 
@@ -90,6 +91,7 @@ app.include_router(usage_router)
 app.include_router(model_catalog_router)
 app.include_router(preferences_router)
 app.include_router(agents_router)
+app.include_router(mcp_router)
 
 
 @app.get("/")

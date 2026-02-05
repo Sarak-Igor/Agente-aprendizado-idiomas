@@ -48,9 +48,6 @@ class AgentSession(Base):
     # Resumo consolidado da conversa até o momento (para memória de curto/médio prazo)
     summary = Column(Text, nullable=True)
     
-    # Fatos e informações chave extraídas da interação (memória semântica estruturada)
-    semantic_context = Column(JSON, nullable=False, default={})
-    
     # Métricas da sessão
     message_count = Column(Integer, default=0)
     last_interaction = Column(DateTime(timezone=True), onupdate=func.now())

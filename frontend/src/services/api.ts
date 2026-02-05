@@ -145,10 +145,10 @@ export const videoApi = {
     return response.data;
   },
 
-  deleteAllVideos: async (): Promise<{ 
-    message: string; 
-    deleted_videos: number; 
-    deleted_translations: number 
+  deleteAllVideos: async (): Promise<{
+    message: string;
+    deleted_videos: number;
+    deleted_translations: number
   }> => {
     const response = await api.delete('/api/video/all');
     return response.data;
@@ -160,6 +160,15 @@ export const videoApi = {
     video_ids?: string[];
   }): Promise<any> => {
     const response = await api.post('/api/practice/phrase/music-context', params);
+    return response.data;
+  },
+
+  getPracticeWords: async (params: {
+    direction: string;
+    difficulty: string;
+    video_ids?: string[];
+  }): Promise<{ words: string[] }> => {
+    const response = await api.post('/api/practice/words', params);
     return response.data;
   },
 
@@ -226,6 +235,7 @@ export interface ApiKeyStatus {
       cost_last_24h?: number;
     }>;
   };
+  credits?: string | number | null;
 }
 
 export interface ApiKeyResponse {
@@ -268,7 +278,7 @@ export const apiKeysApi = {
   },
 
   checkSavedStatus: async (service: string): Promise<ApiKeyStatus> => {
-    const response = await api.post<ApiKeyStatus>(`/api/keys/${service}/check-status-saved`);
+    const response = await api.post<ApiKeyStatus>(`/api/keys/check/${service}/saved`);
     return response.data;
   },
 };
@@ -419,6 +429,10 @@ export interface ChatMessage {
   vocabulary_suggestions?: any;
   difficulty_score?: number;
   feedback_type?: string;
+  analysis_metadata?: {
+    selected_model?: string;
+    notices?: string[];
+  };
   created_at: string;
 }
 

@@ -2,7 +2,7 @@
 Agente roteador inteligente para chat de aprendizado de idiomas
 Seleciona o melhor modelo baseado em contexto, modo de treino e disponibilidade
 """
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Any
 from app.modules.core_llm.services.orchestrator.router import ModelRouter
 from app.modules.user_intelligence.services.multi_service_model_router import MultiServiceModelRouter
 from app.modules.core_llm.services.orchestrator.base import LLMService
@@ -88,19 +88,64 @@ class ChatRouter:
         self,
         mode: str = "writing",
         user_profile: Optional[UserProfile] = None,
-        preferred_service: Optional[str] = None
+        preferred_service: Optional[str] = None,
+        db: Optional[Any] = None  # DB Session injected
     ) -> Optional[Dict[str, str]]:
         """
-        Seleciona o melhor modelo para o contexto do chat
-        
-        Args:
-            mode: Modo de treino ('writing' ou 'conversation')
-            user_profile: Perfil do usuário (opcional)
-            preferred_service: Serviço preferido do usuário (opcional)
-        
-        Returns:
-            Dict com 'service' e 'model' ou None se nenhum disponível
+        Seleciona o melhor modelo para o contexto do chat usando UniversalModelSelector
         """
+        # Se db não for fornecido, não podemos usar o Selector corretamente (precisa de acesso ao catalogo)
+        # Fallback para lógica antiga ou erro? Vamos assumir que será fornecido.
+        if not db:
+            logger.warning("DB Session não fornecida para select_best_model. Usando fallback legado limitado.")
+            # ... lógica legada simplificada ou retorno None ...
+            return self._legacy_select_best_model(mode, user_profile, preferred_service)
+
+        try:
+            from app.modules.core_llm.services.selector import UniversalModelSelector, SelectionRequest, ModelCapability
+            
+            # Instancia Selector
+            selector = UniversalModelSelector(db)
+            
+            # Define capabilities baseadas no modo
+            caps = [ModelCapability.TEXT_INPUT]
+            # Se fosse multimodal, adicionaria aqui. Por enquanto chat texto.
+            
+            # Map user preference logic to Strategy if needed, or let Selector handle it via UserProfile
+            # O Selector já olha o UserProfile dentro dele se passarmos user_id.
+            # Mas aqui recebemos o objeto UserProfile.
+            # Vamos passar o user_id na request.
+            user_id = str(user_profile.user_id) if user_profile else "anonymous"
+            
+            # Cria Request
+            request = SelectionRequest(
+                user_id=user_id,
+                function_name="chat", # default function
+                required_capabilities=caps
+            )
+            
+            # Executa Seleção
+            result = selector.select_model(request)
+            candidate = result.selected_model
+            
+            # Mapeia para o formato esperado pelo ChatService {'service': '...', 'model': '...'}
+            # Garante que o provider retornado bate com os keys do self.available_services
+            service_key = candidate.provider
+            
+            # Normalização de nomes de provedor
+            if service_key == 'google': service_key = 'gemini'
+            
+            return {
+                'service': service_key,
+                'model': candidate.model
+            }
+            
+        except Exception as e:
+            logger.error(f"Erro no UniversalModelSelector: {e}. Usando fallback.")
+            return self._legacy_select_best_model(mode, user_profile, preferred_service)
+
+    def _legacy_select_best_model(self, mode, user_profile, preferred_service):
+        """Lógica antiga de fallback"""
         # Prioridade baseada em modo e disponibilidade
         service_priority = self._get_service_priority(mode, user_profile, preferred_service)
         
@@ -109,44 +154,15 @@ class ChatRouter:
             if service_name in self.available_services:
                 service = self.available_services[service_name]
                 
-                # Verifica se serviço está disponível
                 if not service.is_available():
                     continue
                 
-                # Para Gemini, usa o ModelRouter para selecionar modelo específico
                 if service_name == 'gemini' and self.gemini_service:
                     model_name = self.gemini_service.model_router.get_next_model()
                     if model_name:
-                        return {
-                            'service': 'gemini',
-                            'model': model_name
-                        }
+                        return {'service': 'gemini', 'model': model_name}
                 else:
-                    # Para outros serviços, usa MultiServiceModelRouter para seleção dinâmica
-                    available_models = self._get_available_models_sync(service_name)
-                    if service_name == 'openrouter':
-                        model_name = self.multi_service_router.select_openrouter_model(
-                            mode, available_models
-                        )
-                    elif service_name == 'groq':
-                        model_name = self.multi_service_router.select_groq_model(
-                            mode, available_models
-                        )
-                    elif service_name == 'together':
-                        model_name = self.multi_service_router.select_together_model(
-                            mode, available_models
-                        )
-                    else:
-                        # Fallback para modelo padrão do serviço
-                        model_name = getattr(service, 'model_name', service_name)
-                    
-                    return {
-                        'service': service_name,
-                        'model': model_name
-                    }
-        
-        # Nenhum serviço disponível
-        logger.warning("Nenhum serviço LLM disponível para chat")
+                    return {'service': service_name, 'model': getattr(service, 'model_name', service_name)}
         return None
     
     def _get_available_models_sync(self, service: str) -> Optional[List[str]]:

@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
@@ -13,12 +12,14 @@ export const Sidebar = ({ activeTab, onTabChange }: SidebarProps) => {
   const { theme, toggleTheme } = useTheme();
   const { user, logout } = useAuth();
   const navigate = useNavigate();
-  
+
   const tabs = [
     { id: 'translate', label: 'Traduzir', icon: '🎵' },
     { id: 'videos', label: 'Meus Vídeos', icon: '📹' },
     { id: 'practice', label: 'Treinar Inglês', icon: '📚' },
     { id: 'chat', label: 'Chat', icon: '💬' },
+    { id: 'agents', label: 'Especialistas', icon: '🤖' },
+    { id: 'mcp-factory', label: 'Fábrica MCP', icon: '🏗️' },
     { id: 'api-keys', label: 'Modelos LLM', icon: '🔑' },
   ];
 

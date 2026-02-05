@@ -7,16 +7,42 @@ import { VideoPlayer } from '../VideoPlayer/VideoPlayer';
 import { VideoList } from '../VideoList/VideoList';
 import { ApiKeyManager } from '../ApiKeyManager/ApiKeyManager';
 import { ApiUsage } from '../ApiUsage/ApiUsage';
+import { ModelPreferences } from '../ModelPreferences/ModelPreferences';
 import { KnowledgePractice } from '../KnowledgePractice/KnowledgePractice';
 import { Chat } from '../Chat/Chat';
 import { useJobPolling } from '../../hooks/useJobPolling';
 import { useVideoTranslation } from '../../hooks/useVideoTranslation';
-import { videoApi } from '../../services/api';
 import { storage } from '../../services/storage';
+import { videoApi } from '../../services/api';
+
+import AgentsManager from '../Agents/AgentsManager';
+import AgentChatView from '../Agents/AgentChatView';
+import { MCPFactory } from '../MCPFactory/MCPFactory';
+
+import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 
 export const MainApp = () => {
-  const [activeTab, setActiveTab] = useState('translate');
-  const [apiKeysSubTab, setApiKeysSubTab] = useState<'keys' | 'usage'>('keys');
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  // Sincroniza activeTab com a URL ou estado interno
+  const [activeTab, setActiveTabState] = useState('translate');
+
+  const setActiveTab = (tab: string) => {
+    setActiveTabState(tab);
+    navigate(`/app/${tab}`);
+  };
+
+  // Efeito para sincronizar tab ativa baseada na URL
+  useEffect(() => {
+    const segments = location.pathname.split('/');
+    // Formato esperado: /app/:tab/...
+    const tabName = segments[2];
+    if (tabName && ['translate', 'videos', 'practice', 'chat', 'agents', 'mcp-factory', 'api-keys'].includes(tabName)) {
+      setActiveTabState(tabName);
+    }
+  }, [location]);
+  const [apiKeysSubTab, setApiKeysSubTab] = useState<'keys' | 'usage' | 'preferences'>('keys');
   const [youtubeUrl, setYoutubeUrl] = useState('');
   const [videoId, setVideoId] = useState<string | null>(null);
   const [sourceLanguage, setSourceLanguage] = useState(storage.getSourceLanguage());
@@ -68,7 +94,7 @@ export const MainApp = () => {
   const handleUrlSubmit = async (url: string) => {
     setYoutubeUrl(url);
     const extractedId = extractVideoId(url);
-    
+
     if (!extractedId) {
       alert('URL do YouTube inválida.');
       return;
@@ -80,14 +106,14 @@ export const MainApp = () => {
     try {
       // Verifica se já existe tradução
       const check = await videoApi.check(url, sourceLanguage, targetLanguage);
-      
+
       if (check.exists && check.video_id) {
         // Pergunta ao usuário se deseja retraduzir
         const shouldRetranslate = window.confirm(
           'Este vídeo já foi traduzido. Deseja retraduzir com as correções aplicadas?\n\n' +
           'Clique em "OK" para retraduzir ou "Cancelar" para usar a tradução existente.'
         );
-        
+
         if (shouldRetranslate) {
           // Retraduz com as correções
           const response = await videoApi.process({
@@ -149,6 +175,9 @@ export const MainApp = () => {
               onSourceChange={setSourceLanguage}
               onTargetChange={setTargetLanguage}
             />
+            <div className="translation-note" style={{ marginTop: '8px', color: '#444', fontSize: '0.95rem' }}>
+              Observação: atualmente o sistema suporta apenas traduções e legendas entre <strong>Inglês ↔ Português</strong>.
+            </div>
 
             <URLInput onSubmit={handleUrlSubmit} loading={processing} />
 
@@ -176,7 +205,7 @@ export const MainApp = () => {
             )}
           </div>
         );
-      
+
       case 'videos':
         return (
           <div className="tab-content">
@@ -200,21 +229,35 @@ export const MainApp = () => {
             )}
           </div>
         );
-      
+
       case 'practice':
         return (
           <div className="tab-content">
             <KnowledgePractice />
           </div>
         );
-      
+
       case 'chat':
         return (
           <div className="tab-content">
             <Chat />
           </div>
         );
-      
+
+      case 'agents':
+        return (
+          <div className="tab-content">
+            <AgentsManager />
+          </div>
+        );
+
+      case 'mcp-factory':
+        return (
+          <div className="tab-content">
+            <MCPFactory />
+          </div>
+        );
+
       case 'api-keys':
         return (
           <div className="tab-content">
@@ -222,13 +265,13 @@ export const MainApp = () => {
               <h2>Modelos LLM</h2>
               <p>Configure suas chaves de API e monitore seu uso</p>
             </div>
-            
+
             {/* Sub-abas */}
-            <div style={{ 
-              display: 'flex', 
-              gap: '8px', 
+            <div style={{
+              display: 'flex',
+              gap: '8px',
               marginBottom: '24px',
-              borderBottom: '2px solid #e5e7eb'
+              borderBottom: '2px solid var(--border-color)'
             }}>
               <button
                 onClick={() => setApiKeysSubTab('keys')}
@@ -237,7 +280,7 @@ export const MainApp = () => {
                   background: 'transparent',
                   border: 'none',
                   borderBottom: apiKeysSubTab === 'keys' ? '3px solid #7c3aed' : '3px solid transparent',
-                  color: apiKeysSubTab === 'keys' ? '#7c3aed' : '#6b7280',
+                  color: apiKeysSubTab === 'keys' ? '#7c3aed' : 'var(--text-secondary)',
                   fontWeight: apiKeysSubTab === 'keys' ? '600' : '400',
                   cursor: 'pointer',
                   fontSize: '1rem',
@@ -253,7 +296,7 @@ export const MainApp = () => {
                   background: 'transparent',
                   border: 'none',
                   borderBottom: apiKeysSubTab === 'usage' ? '3px solid #7c3aed' : '3px solid transparent',
-                  color: apiKeysSubTab === 'usage' ? '#7c3aed' : '#6b7280',
+                  color: apiKeysSubTab === 'usage' ? '#7c3aed' : 'var(--text-secondary)',
                   fontWeight: apiKeysSubTab === 'usage' ? '600' : '400',
                   cursor: 'pointer',
                   fontSize: '1rem',
@@ -262,17 +305,31 @@ export const MainApp = () => {
               >
                 📊 Uso e Cota
               </button>
+              <button
+                onClick={() => setApiKeysSubTab('preferences')}
+                style={{
+                  padding: '12px 24px',
+                  background: 'transparent',
+                  border: 'none',
+                  borderBottom: apiKeysSubTab === 'preferences' ? '3px solid #7c3aed' : '3px solid transparent',
+                  color: apiKeysSubTab === 'preferences' ? '#7c3aed' : 'var(--text-secondary)',
+                  fontWeight: apiKeysSubTab === 'preferences' ? '600' : '400',
+                  cursor: 'pointer',
+                  fontSize: '1rem',
+                  transition: 'all 0.2s'
+                }}
+              >
+                ⚙️ Preferências
+              </button>
             </div>
-            
+
             {/* Conteúdo das sub-abas */}
-            {apiKeysSubTab === 'keys' ? (
-              <ApiKeyManager />
-            ) : (
-              <ApiUsage />
-            )}
+            {apiKeysSubTab === 'keys' && <ApiKeyManager />}
+            {apiKeysSubTab === 'usage' && <ApiUsage />}
+            {apiKeysSubTab === 'preferences' && <ModelPreferences />}
           </div>
         );
-      
+
       default:
         return null;
     }
@@ -283,7 +340,10 @@ export const MainApp = () => {
       <Sidebar activeTab={activeTab} onTabChange={setActiveTab} />
       <main className="app-main">
         <div className="app-content">
-          {renderTabContent()}
+          <Routes>
+            <Route path="agents/chat/:sessionId" element={<AgentChatView />} />
+            <Route path="*" element={renderTabContent()} />
+          </Routes>
         </div>
       </main>
     </div>

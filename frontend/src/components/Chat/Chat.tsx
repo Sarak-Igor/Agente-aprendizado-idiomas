@@ -60,7 +60,7 @@ export const Chat = () => {
       try {
         const data = await chatApi.listSessions();
         setSessions(data);
-        
+
         // Se há sessões ativas, usa a mais recente
         const activeSession = data.find(s => s.is_active);
         if (activeSession) {
@@ -70,7 +70,7 @@ export const Chat = () => {
       } catch (error: any) {
         console.error('Erro ao carregar sessões:', error);
       }
-      
+
       // Se não há sessão ativa e tem targetLanguage, cria uma nova
       const lang = storage.getTargetLanguage();
       if (!currentSession && !creatingSession && lang) {
@@ -85,7 +85,7 @@ export const Chat = () => {
         }, 1000);
       }
     };
-    
+
     initializeChat();
   }, []); // Executa apenas uma vez ao montar
 
@@ -124,11 +124,11 @@ export const Chat = () => {
       'zh': 'chinês',
       'ru': 'russo'
     };
-    
+
     const learningLanguage = languageNames[lang] || lang;
     const nativeLanguage = 'português';
     const proficiency = 'iniciante';
-    
+
     if (mode === 'writing') {
       return `Você é um professor de ${learningLanguage} experiente e paciente. Seu aluno é ${proficiency} e fala ${nativeLanguage} como idioma nativo.
 
@@ -161,7 +161,7 @@ Comece a conversa de forma natural e amigável.`;
     try {
       const data = await chatApi.listSessions();
       setSessions(data);
-      
+
       // Se não há sessão atual, tenta usar a mais recente ativa
       if (!currentSession && data.length > 0) {
         const activeSession = data.find(s => s.is_active);
@@ -177,7 +177,7 @@ Comece a conversa de forma natural e amigável.`;
 
   const loadSessionMessages = async () => {
     if (!currentSession) return;
-    
+
     try {
       const data = await chatApi.getSession(currentSession.id);
       setMessages(data.messages);
@@ -217,14 +217,14 @@ Comece a conversa de forma natural e amigável.`;
     if (!session || !session.model_service || !session.model_name) {
       return 'Modelo não definido';
     }
-    
+
     const serviceNames: { [key: string]: string } = {
       'gemini': 'Gemini',
       'openrouter': 'OpenRouter',
       'groq': 'Groq',
       'together': 'Together'
     };
-    
+
     const serviceName = serviceNames[session.model_service] || session.model_service;
     return `${serviceName} - ${session.model_name}`;
   };
@@ -421,6 +421,16 @@ Comece a conversa de forma natural e amigável.`;
                   {message.feedback_type && (
                     <span className="feedback-badge">{message.feedback_type}</span>
                   )}
+                  {message.analysis_metadata?.notices && message.analysis_metadata.notices.length > 0 && (
+                    <div className="message-notices">
+                      {message.analysis_metadata.notices.map((notice, idx) => (
+                        <div key={idx} className="notice-item">
+                          <span className="notice-icon">⚠️</span>
+                          <span className="notice-text">{notice}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div className="message-time">
                   {new Date(message.created_at).toLocaleTimeString()}
@@ -535,10 +545,10 @@ Comece a conversa de forma natural e amigável.`;
                     if (currentSession) {
                       try {
                         // Se o prompt editado é igual ao padrão, salva como vazio para usar o padrão
-                        const promptToSave = (customPrompt && customPrompt.trim() !== defaultPrompt.trim()) 
-                          ? customPrompt.trim() 
+                        const promptToSave = (customPrompt && customPrompt.trim() !== defaultPrompt.trim())
+                          ? customPrompt.trim()
                           : undefined;
-                        
+
                         await chatApi.updateConfig(currentSession.id, {
                           teaching_language: teachingLanguage,
                           custom_prompt: promptToSave
@@ -595,21 +605,21 @@ Comece a conversa de forma natural e amigável.`;
             <div className="model-selector-content">
               {Object.entries(availableModels).map(([service, models]) => {
                 if (!models || models.length === 0) return null;
-                
+
                 const serviceNames: { [key: string]: string } = {
                   'gemini': 'Gemini',
                   'openrouter': 'OpenRouter',
                   'groq': 'Groq',
                   'together': 'Together'
                 };
-                
+
                 const serviceIcons: { [key: string]: string } = {
                   'gemini': '🤖',
                   'openrouter': '🌐',
                   'groq': '⚡',
                   'together': '🔗'
                 };
-                
+
                 return (
                   <div key={service} className="model-service-group">
                     <div className="service-header">
@@ -623,12 +633,11 @@ Comece a conversa de forma natural e amigável.`;
                       {models.map((model) => (
                         <button
                           key={model.name}
-                          className={`model-item ${
-                            currentSession?.model_service === service &&
-                            currentSession?.model_name === model.name
+                          className={`model-item ${currentSession?.model_service === service &&
+                              currentSession?.model_name === model.name
                               ? 'active'
                               : ''
-                          } ${!model.available ? 'unavailable' : ''}`}
+                            } ${!model.available ? 'unavailable' : ''}`}
                           onClick={() => handleChangeModel(service, model.name)}
                           disabled={changingModel || !model.available}
                         >
@@ -641,8 +650,8 @@ Comece a conversa de forma natural e amigável.`;
                           <div className="model-item-badges">
                             {currentSession?.model_service === service &&
                               currentSession?.model_name === model.name && (
-                              <span className="model-item-badge current">Atual</span>
-                            )}
+                                <span className="model-item-badge current">Atual</span>
+                              )}
                             {!model.available && (
                               <span className="model-item-badge unavailable">Indisponível</span>
                             )}

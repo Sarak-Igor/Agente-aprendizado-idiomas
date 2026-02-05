@@ -66,12 +66,47 @@ class ModelCatalogService:
         m_id = data.get("id")
         if not m_id: return
         
+        # Extração de Inteligência / Metadados Técnicos
+        description = (data.get("description") or "").lower()
+        context_length = data.get("context_length") or 0
+        architecture = data.get("architecture") or {}
+        modality = architecture.get("modality") or ""
+        
+        # 1. Determina Capacidades (Capabilities)
+        caps = ["text_input"]
+        if "vision" in modality.lower() or "vision" in description or "multimodal" in description:
+            caps.append("image_input")
+        if "audio" in modality.lower() or "audio" in description:
+            caps.append("audio_input")
+        if context_length > 128000:
+            caps.append("long_context")
+        if "function calling" in description or "tool use" in description:
+            caps.append("function_calling")
+        
+        # 2. Determina Categoria (Category) baseada em fatos, não apenas nome
+        category = "text"
+        if "image_input" in caps:
+            category = "multimodal"
+        elif "audio_input" in caps:
+            category = "audio"
+        elif "reasoning" in description or "think" in description:
+            category = "reasoning"
+        elif "coder" in description or "programming" in description or "sql" in description:
+            category = "code"
+        elif context_length > 256000:
+            category = "long_context"
+        elif "flash" in m_id.lower() or "haiku" in m_id.lower():
+            category = "small_model"
+            
         model = db.query(ModelCatalog).filter(ModelCatalog.aliases.contains([m_id])).first()
         if not model:
             model = ModelCatalog(
                 display_name=data.get("name") or m_id,
                 aliases=[m_id],
                 canonical_name=[self._normalize_key(m_id)],
+                category=category,
+                capabilities=caps,
+                organization=architecture.get("org") or data.get("owner") or "",
                 is_active=True,
                 source="openrouter"
             )
@@ -79,6 +114,10 @@ class ModelCatalogService:
             db.flush()
             stats["created"] += 1
         else:
+            # Atualiza metadados se já existir
+            model.category = category or model.category
+            model.capabilities = list(set(model.capabilities + caps))
+            model.organization = model.organization or architecture.get("org")
             stats["updated"] += 1
             
         # Mapping

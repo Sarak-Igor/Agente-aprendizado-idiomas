@@ -76,6 +76,24 @@ class Token(BaseModel):
     username: str
 
 
+class ModelPreferencesUpdate(BaseModel):
+    usage_mode: Optional[str] = Field(None, pattern="^(free|paid)$")
+    global_strategy: Optional[str] = Field(None, pattern="^(performance|cost_benefit|speed|cheapest|free)$")
+    chat_strategy: Optional[str] = Field(None, pattern="^(performance|cost_benefit|speed|cheapest|free|global)$")
+    code_strategy: Optional[str] = Field(None, pattern="^(performance|cost_benefit|speed|cheapest|free|global)$")
+    vision_strategy: Optional[str] = Field(None, pattern="^(performance|cost_benefit|speed|cheapest|free|global)$")
+    video_strategy: Optional[str] = Field(None, pattern="^(performance|cost_benefit|speed|cheapest|free|global)$")
+    multimodal_strategy: Optional[str] = Field(None, pattern="^(performance|cost_benefit|speed|cheapest|free|global)$")
+    translation_strategy: Optional[str] = Field(None, pattern="^(performance|cost_benefit|speed|cheapest|free|global)$")
+    reasoning_strategy: Optional[str] = Field(None, pattern="^(performance|cost_benefit|speed|cheapest|free|global)$")
+    long_context_strategy: Optional[str] = Field(None, pattern="^(performance|cost_benefit|speed|cheapest|free|global)$")
+    audio_strategy: Optional[str] = Field(None, pattern="^(performance|cost_benefit|speed|cheapest|free|global)$")
+    creative_strategy: Optional[str] = Field(None, pattern="^(performance|cost_benefit|speed|cheapest|free|global)$")
+    structured_strategy: Optional[str] = Field(None, pattern="^(performance|cost_benefit|speed|cheapest|free|global)$")
+    small_model_strategy: Optional[str] = Field(None, pattern="^(performance|cost_benefit|speed|cheapest|free|global)$")
+    model_list_limit: Optional[int] = Field(None, ge=1, le=100)
+
+
 class UserProfileResponse(BaseModel):
     id: UUID
     email: str
@@ -89,6 +107,7 @@ class UserProfileResponse(BaseModel):
     learning_context: Optional[dict] = None
     preferred_learning_style: Optional[str] = None
     preferred_model: Optional[str] = None
+    model_preferences: Optional[dict] = None
     created_at: datetime
 
 

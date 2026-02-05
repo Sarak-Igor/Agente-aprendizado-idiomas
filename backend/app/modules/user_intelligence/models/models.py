@@ -28,7 +28,8 @@ class UserProfile(Base):
     
     # Preferências
     preferred_learning_style = Column(String(50), nullable=True)  # formal, casual, conversational
-    preferred_model = Column(String(100), nullable=True)  # Modelo preferido do usuário
+    preferred_model = Column(String(100), nullable=True)  # Modelo preferido do usuário (legacy)
+    model_preferences = Column(JSONB, nullable=True)  # { "chat": "performance", "translation": "cost" }
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

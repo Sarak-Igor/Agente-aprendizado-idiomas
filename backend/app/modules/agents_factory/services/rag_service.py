@@ -1,7 +1,7 @@
 import os
 import uuid
 import logging
-from typing import List, Optional
+from typing import List, Optional, Tuple
 from uuid import UUID
 try:
     import chromadb
@@ -22,18 +22,20 @@ class RAGService:
     """
     Serviço de Retrieval-Augmented Generation (RAG) profissional.
     Utiliza ChromaDB para busca vetorial semântica.
+    
+    Arquitetura de coleções:
+    - session_{id}_docs: Documentos enviados pelo usuário (PDFs, TXTs, etc.)
+    - session_{id}_msgs: Mensagens da conversa (user + assistant)
     """
     
     def __init__(self, db: Optional[any] = None, persist_directory: Optional[str] = None):
         if persist_directory is None:
-            # Caminho absoluto relativo ao backend (5 níveis acima de services/rag_service.py)
-            # 1: services, 2: agents_factory, 3: modules, 4: app, 5: backend
             base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
             self.persist_directory = os.path.join(base_dir, "chroma_db")
         else:
             self.persist_directory = persist_directory
             
-        print(f"DEBUG RAG: ChromaDB persistindo em: {self.persist_directory}")
+        logger.info(f"ChromaDB persistindo em: {self.persist_directory}")
         self.client = None
         
         if CHROMA_AVAILABLE:
@@ -45,8 +47,54 @@ class RAGService:
         else:
             logger.warning("⚠️ ChromaDB não está instalado. RAG estará desativado.")
 
+    def _get_collection_name(self, session_id: UUID, collection_type: str) -> str:
+        """Gera nome padronizado para coleção."""
+        sid = str(session_id).replace('-', '_')
+        return f"session_{sid}_{collection_type}"
+
+    def index_message(self, session_id: UUID, role: str, content: str) -> bool:
+        """
+        Indexa uma mensagem da conversa no banco vetorial.
+        
+        Args:
+            session_id: ID da sessão
+            role: 'user' ou 'assistant'
+            content: Conteúdo da mensagem
+            
+        Returns:
+            True se indexado com sucesso
+        """
+        if not self.client:
+            return False
+            
+        if not content or len(content.strip()) < 10:
+            return False
+            
+        try:
+            coll_name = self._get_collection_name(session_id, "msgs")
+            collection = self.client.get_or_create_collection(name=coll_name)
+            
+            msg_id = f"msg_{uuid.uuid4()}"
+            
+            collection.add(
+                documents=[content],
+                ids=[msg_id],
+                metadatas=[{
+                    "session_id": str(session_id),
+                    "role": role,
+                    "type": "message"
+                }]
+            )
+            
+            logger.debug(f"Mensagem indexada: {role} ({len(content)} chars)")
+            return True
+            
+        except Exception as e:
+            logger.warning(f"Erro ao indexar mensagem: {str(e)}")
+            return False
+
     async def ingest_file(self, session_id: UUID, file_path: str, user_id: UUID) -> bool:
-        """Extrai texto e indexa no ChromaDB."""
+        """Extrai texto de arquivo e indexa no ChromaDB (coleção _docs)."""
         if not self.client:
             logger.error("ChromaDB não disponível para ingestão.")
             return False
@@ -59,10 +107,8 @@ class RAGService:
                 if not PDF_AVAILABLE: 
                     logger.error("PyPDF não disponível.")
                     return False
-                print(f"DEBUG RAG: Lendo PDF {file_path}")
                 reader = PdfReader(file_path)
                 text = "\n".join([page.extract_text() for page in reader.pages])
-                print(f"DEBUG RAG: Texto extraído ({len(text)} caracteres)")
             elif ext in [".txt", ".md", ".json"]:
                 with open(file_path, "r", encoding="utf-8") as f:
                     text = f.read()
@@ -71,87 +117,83 @@ class RAGService:
                 return False
 
             if not text.strip():
-                print("DEBUG RAG: Texto vazio após extração")
                 return False
 
             chunks = self._chunk_text(text)
-            print(f"DEBUG RAG: Gerados {len(chunks)} fragmentos")
-            sid = str(session_id)
             
-            # Cria ou obtém a coleção para a sessão
-            coll_name = f"session_{sid.replace('-', '_')}"
-            print(f"DEBUG RAG: Acessando coleção ChromaDB: {coll_name}")
+            coll_name = self._get_collection_name(session_id, "docs")
             collection = self.client.get_or_create_collection(name=coll_name)
             
-            # 2. Busca registro do Documento
-            from app.modules.agents_factory.models.models import AgentDocument
-
-            # Adiciona ao banco vetorial
-            print(f"DEBUG RAG: Enviando para o ChromaDB...")
             collection.add(
                 documents=chunks,
-                ids=[f"{sid}_{i}_{uuid.uuid4()}" for i in range(len(chunks))],
-                metadatas=[{"session_id": sid, "user_id": str(user_id)} for _ in chunks]
+                ids=[f"doc_{i}_{uuid.uuid4()}" for i in range(len(chunks))],
+                metadatas=[{
+                    "session_id": str(session_id),
+                    "user_id": str(user_id),
+                    "source": os.path.basename(file_path),
+                    "type": "document"
+                } for _ in chunks]
             )
             
-            logger.info(f"✅ Arquivo {file_path} indexado com sucesso no ChromaDB.")
-            print("DEBUG RAG: Ingestão concluída com sucesso")
+            logger.info(f"✅ Arquivo {file_path} indexado: {len(chunks)} chunks")
             return True
 
         except Exception as e:
-            logger.error(f"❌ Erro na ingestão RAG (ChromaDB): {e}")
-            print(f"DEBUG RAG: Erro na ingestão: {str(e)}")
+            logger.error(f"❌ Erro na ingestão RAG: {e}")
             return False
+
+    def _query_collection(self, coll_name: str, query: str, n_results: int) -> List[Tuple[str, str]]:
+        """Busca em uma coleção específica e retorna (documento, tipo)."""
+        results = []
+        try:
+            collection = self.client.get_collection(name=coll_name)
+            query_results = collection.query(
+                query_texts=[query],
+                n_results=n_results,
+                include=["documents", "metadatas"]
+            )
+            
+            documents = query_results.get("documents", [[]])[0]
+            metadatas = query_results.get("metadatas", [[]])[0]
+            
+            for doc, meta in zip(documents, metadatas):
+                doc_type = meta.get("type", "unknown")
+                results.append((doc, doc_type))
+                
+        except Exception:
+            pass
+            
+        return results
 
     def retrieve_context(self, session_id: UUID, query: str, n_results: int = 5) -> str:
         """
-        Busca context no ChromaDB. 
-        Implementa fallback para garantir que o Agente receba algo relevante mesmo 
-        se a query for genérica (ex: 'analise o contrato').
+        Busca contexto híbrido: documentos + histórico de mensagens.
+        Retorna contexto formatado com indicação de origem.
         """
         if not self.client:
             return ""
             
         try:
-            sid = str(session_id).replace('-', '_')
-            coll_name = f"session_{sid}"
+            docs_coll = self._get_collection_name(session_id, "docs")
+            msgs_coll = self._get_collection_name(session_id, "msgs")
             
-            try:
-                collection = self.client.get_collection(name=coll_name)
-            except Exception:
-                # Coleção não existe
-                return ""
+            doc_results = self._query_collection(docs_coll, query, n_results)
+            msg_results = self._query_collection(msgs_coll, query, n_results)
             
-            # 1. Busca semântica principal
-            results = collection.query(
-                query_texts=[query],
-                n_results=n_results
-            )
+            formatted_parts = []
             
-            documents = results.get("documents", [[]])[0]
+            for doc, doc_type in doc_results[:3]:
+                formatted_parts.append(f"[DOC] {doc}")
+                
+            for msg, msg_type in msg_results[:3]:
+                formatted_parts.append(f"[MSG] {msg}")
             
-            # 2. Heurística para queries genéricas ou resultados fracos
-            # Se a query for muito curta ou o resultado for escasso, pegamos o início do doc
-            query_lower = query.lower()
-            needs_more = len(documents) < 2 or any(word in query_lower for word in ["analise", "resumo", "detalhe", "contrato"])
-            
-            if needs_more:
-                # Busca 'cega' pelos primeiros itens (id baseada em ordem)
-                # No Chroma, podemos dar um query com texto genérico ou pegar por metadata
-                extra_results = collection.get(limit=3, include=["documents"])
-                extra_docs = extra_results.get("documents", [])
-                for d in extra_docs:
-                    if d not in documents:
-                        documents.append(d)
-            
-            if not documents:
+            if not formatted_parts:
                 return ""
                 
-            # Limita ao n_results final para não estourar o prompt
-            final_docs = documents[:n_results]
-            
-            logger.info(f"RAG: Recuperados {len(final_docs)} fragmentos para a sessao {sid}")
-            return "\n---\n".join(final_docs)
+            context = "\n---\n".join(formatted_parts)
+            logger.info(f"RAG: Recuperados {len(doc_results)} docs + {len(msg_results)} msgs")
+            return context
             
         except Exception as e:
             logger.warning(f"Erro ao recuperar contexto RAG: {str(e)}")
@@ -161,5 +203,7 @@ class RAGService:
         """Divide o texto em chunks menores com sobreposição."""
         chunks = []
         for i in range(0, len(text), chunk_size - overlap):
-            chunks.append(text[i:i + chunk_size])
+            chunk = text[i:i + chunk_size]
+            if chunk.strip():
+                chunks.append(chunk)
         return chunks

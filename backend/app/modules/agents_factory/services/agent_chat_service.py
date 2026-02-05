@@ -57,23 +57,21 @@ class AgentChatService:
             self.db.add(user_msg)
             session.message_count += 1
             self.db.commit()
+            
+            # 2. Indexa mensagem do usuário no banco vetorial
+            self.rag_service.index_message(session_id, "user", content)
 
-            # 2. Recupera contexto de Documentos (RAG)
+            # 3. Recupera contexto híbrido (Documentos + Histórico)
             rag_context = self.rag_service.retrieve_context(session_id, content)
 
             # 3. Prepara o System Prompt com Injeção de Memória e RAG
             system_prompt = agent.base_prompt
             
             if rag_context:
-                system_prompt += f"\n\n### Contexto Extraído de Documentos:\n{rag_context}"
+                system_prompt += f"\n\n### Contexto Relevante (Documentos e Histórico):\n{rag_context}"
 
             if session.summary:
                 system_prompt += f"\n\n### Memória da Conversa (Resumo):\n{session.summary}"
-                
-            if session.semantic_context:
-                fact_str = ", ".join([f"{k}: {v}" for k, v in session.semantic_context.items()])
-                if fact_str:
-                    system_prompt += f"\n\n### Fatos Conhecidos:\n{fact_str}"
 
             # 3. Recupera histórico recente (além do resumo)
             recent_messages = self.db.query(AgentChatMessage).filter(
@@ -179,6 +177,9 @@ class AgentChatService:
             self.db.add(assistant_msg)
             session.message_count += 1
             self.db.commit()
+            
+            # 6. Indexa resposta do assistente no banco vetorial
+            self.rag_service.index_message(session_id, "assistant", response_text)
 
             # 6. Atualização de Memória (Background simulado)
             if session.message_count % 5 == 0:

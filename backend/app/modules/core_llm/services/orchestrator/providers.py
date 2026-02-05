@@ -4,7 +4,12 @@ Implementações de provedores LLM (OpenRouter, Groq, Together)
 import logging
 import httpx
 from typing import Optional
-from app.modules.core_llm.services.orchestrator.base import LLMService
+from app.modules.core_llm.services.orchestrator.base import (
+    LLMService, 
+    InsufficientBalanceError, 
+    QuotaExceededError, 
+    LLMError
+)
 
 logger = logging.getLogger(__name__)
 
@@ -34,9 +39,9 @@ class OpenRouterLLMService(LLMService):
                     }
                 )
                 if response.status_code == 200:
+                    # ... (mantém lógica de sucesso) ...
                     data = response.json()
                     result = data["choices"][0]["message"]["content"].strip()
-                    
                     if self.token_usage_service:
                         usage = data.get("usage", {})
                         self.token_usage_service.record_usage(
@@ -45,10 +50,18 @@ class OpenRouterLLMService(LLMService):
                             output_tokens=usage.get("completion_tokens", 0)
                         )
                     return result
-                raise Exception(f"Erro OpenRouter: {response.status_code}")
-        except Exception as e:
-            logger.error(f"Erro OpenRouter: {e}")
+                
+                if response.status_code == 402:
+                    raise InsufficientBalanceError("Saldo insuficiente no OpenRouter", service="openrouter", model=model_to_use)
+                if response.status_code == 429:
+                    raise QuotaExceededError("Limite de cota atingido no OpenRouter", service="openrouter", model=model_to_use)
+                    
+                raise LLMError(f"Erro OpenRouter: {response.status_code}", service="openrouter", model=model_to_use)
+        except LLMError:
             raise
+        except Exception as e:
+            logger.error(f"Erro inesperado OpenRouter: {e}")
+            raise LLMError(f"Erro inesperado: {str(e)}", service="openrouter", model=model_to_use)
 
 class GroqLLMService(LLMService):
     """Serviço LLM usando Groq"""
@@ -86,10 +99,18 @@ class GroqLLMService(LLMService):
                             output_tokens=usage.get("completion_tokens", 0)
                         )
                     return result
-                raise Exception(f"Erro Groq: {response.status_code}")
-        except Exception as e:
-            logger.error(f"Erro Groq: {e}")
+
+                if response.status_code == 402:
+                    raise InsufficientBalanceError("Saldo insuficiente no Groq/OpenAI", service="groq", model=model_to_use)
+                if response.status_code == 429:
+                    raise QuotaExceededError("Cota atingida no Groq", service="groq", model=model_to_use)
+                
+                raise LLMError(f"Erro Groq: {response.status_code}", service="groq", model=model_to_use)
+        except LLMError:
             raise
+        except Exception as e:
+            logger.error(f"Erro inesperado Groq: {e}")
+            raise LLMError(f"Erro inesperado: {str(e)}", service="groq", model=model_to_use)
 
 class TogetherAILLMService(LLMService):
     """Serviço LLM usando Together AI"""
@@ -127,7 +148,15 @@ class TogetherAILLMService(LLMService):
                             output_tokens=usage.get("completion_tokens", 0)
                         )
                     return result
-                raise Exception(f"Erro Together AI: {response.status_code}")
-        except Exception as e:
-            logger.error(f"Erro Together AI: {e}")
+                
+                if response.status_code == 402:
+                    raise InsufficientBalanceError("Saldo insuficiente no Together AI", service="together", model=model_to_use)
+                if response.status_code == 429:
+                    raise QuotaExceededError("Cota atingida no Together AI", service="together", model=model_to_use)
+                
+                raise LLMError(f"Erro Together AI: {response.status_code}", service="together", model=model_to_use)
+        except LLMError:
             raise
+        except Exception as e:
+            logger.error(f"Erro inesperado Together: {e}")
+            raise LLMError(f"Erro inesperado: {str(e)}", service="together", model=model_to_use)

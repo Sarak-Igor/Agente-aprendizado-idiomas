@@ -23,7 +23,6 @@ class AgentSessionResponse(BaseModel):
     id: UUID
     agent_id: UUID
     summary: Optional[str] = None
-    semantic_context: Dict[str, Any]
     message_count: int
     created_at: datetime
     
@@ -41,3 +40,12 @@ class ChatMessageResponse(BaseModel):
     created_at: datetime
     
     model_config = ConfigDict(from_attributes=True)
+
+class Blueprint(BaseModel):
+    name: str
+    version: str
+    description: Optional[str] = None
+    nodes: List[Dict[str, Any]]
+    edges: List[Dict[str, Any]]
+    settings: Optional[Dict[str, Any]] = {}
+    resilience: Optional[Dict[str, Any]] = {}

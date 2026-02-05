@@ -4,6 +4,7 @@ Serviço para verificar status e cotas de diferentes APIs
 import httpx
 import logging
 from typing import Dict, List, Optional
+from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
@@ -183,7 +184,12 @@ class ApiStatusChecker:
                         
                         prompt_price = float(pricing.get("prompt", "0"))
                         completion_price = float(pricing.get("completion", "0"))
-                        tier = "free" if prompt_price == 0 and completion_price == 0 else "paid"
+                        
+                        # Normalização do Selo Free (Ponto 1 do usuário)
+                        is_free_by_price = (prompt_price == 0 and completion_price == 0)
+                        is_free_by_name = "free" in (model_id + " " + display_name).lower()
+                        
+                        tier = "free" if is_free_by_price or is_free_by_name else "paid"
                         
                         # Tenta DB primeiro, depois heurística
                         category = None

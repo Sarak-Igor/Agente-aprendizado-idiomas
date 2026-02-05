@@ -39,17 +39,17 @@ export const ApiUsage = () => {
     const period = days !== undefined ? days : periodDays;
     setLoading(true);
     setError(null);
-    
+
     try {
       const response = await usageApi.getStats(undefined, period);
-      
+
       const statsData: UsageStats[] = [];
-      
+
       if (response.services && response.services.length > 0) {
         // Múltiplos serviços
         for (const serviceData of response.services) {
-          const serviceName = getServiceDisplayName(serviceData.service);
-          
+          const serviceName = getServiceDisplayName(serviceData.service || 'unknown');
+
           statsData.push({
             service: serviceName,
             requests: serviceData.requests || 0,
@@ -59,7 +59,7 @@ export const ApiUsage = () => {
             cost: 0, // Estimativa de custo pode ser adicionada depois
             models: serviceData.models || [],
             quota: {
-              limit: getQuotaLimit(serviceData.service),
+              limit: getQuotaLimit(serviceData.service || 'unknown'),
               used: serviceData.total_tokens || 0,
               resetDate: new Date(Date.now() + 24 * 60 * 60 * 1000).toLocaleDateString('pt-BR'),
             },
@@ -67,7 +67,7 @@ export const ApiUsage = () => {
         }
       } else if (response.service) {
         // Um serviço específico
-        const serviceName = getServiceDisplayName(response.service);
+        const serviceName = getServiceDisplayName(response.service || 'unknown');
         statsData.push({
           service: serviceName,
           requests: response.requests || 0,
@@ -77,13 +77,13 @@ export const ApiUsage = () => {
           cost: 0,
           models: response.models || [],
           quota: {
-            limit: getQuotaLimit(response.service),
+            limit: getQuotaLimit(response.service || 'unknown'),
             used: response.total_tokens || 0,
             resetDate: new Date(Date.now() + 24 * 60 * 60 * 1000).toLocaleDateString('pt-BR'),
           },
         });
       }
-      
+
       setStats(statsData);
     } catch (err: any) {
       console.error('Erro ao carregar estatísticas:', err);
@@ -136,7 +136,7 @@ export const ApiUsage = () => {
     return (
       <div className="api-usage-empty">
         <p style={{ color: '#ef4444' }}>Erro: {error}</p>
-        <button onClick={loadUsageStats} className="refresh-btn">🔄 Tentar Novamente</button>
+        <button onClick={() => loadUsageStats()} className="refresh-btn">🔄 Tentar Novamente</button>
       </div>
     );
   }
@@ -146,7 +146,7 @@ export const ApiUsage = () => {
       <div className="api-usage-empty">
         <p>Nenhum uso registrado ainda.</p>
         <p className="hint">As estatísticas de uso serão exibidas aqui após traduzir vídeos.</p>
-        <button onClick={loadUsageStats} className="refresh-btn">🔄 Atualizar</button>
+        <button onClick={() => loadUsageStats()} className="refresh-btn">🔄 Atualizar</button>
       </div>
     );
   }
@@ -156,8 +156,8 @@ export const ApiUsage = () => {
       <div className="usage-header">
         <h3>Estatísticas de Uso</h3>
         <div className="header-controls">
-          <select 
-            value={periodDays} 
+          <select
+            value={periodDays}
             onChange={(e) => {
               const days = parseInt(e.target.value);
               setPeriodDays(days);
@@ -173,7 +173,7 @@ export const ApiUsage = () => {
           </select>
           <button onClick={() => loadUsageStats(periodDays)} className="refresh-btn">🔄 Atualizar</button>
         </div>
-        <button onClick={loadUsageStats} className="refresh-btn">🔄 Atualizar</button>
+        <button onClick={() => loadUsageStats()} className="refresh-btn">🔄 Atualizar</button>
       </div>
 
       <div className="usage-stats">
@@ -214,15 +214,18 @@ export const ApiUsage = () => {
                 <div className="models-usage">
                   <h5>Uso por Modelo:</h5>
                   <div className="models-list">
-                    {stat.models.map((model) => (
-                      <div key={model.model} className="model-usage-item">
-                        <span className="model-name">{model.model}</span>
-                        <div className="model-stats">
-                          <span className="model-tokens">{model.tokens.toLocaleString()} tokens</span>
-                          <span className="model-requests">{model.requests} req</span>
+                    {stat.models.map((model, idx) => {
+                      console.log(`Rendering model ${idx}:`, model);
+                      return (
+                        <div key={model.model || idx} className="model-usage-item">
+                          <span className="model-name">{model.model || 'Modelo Desconhecido'}</span>
+                          <div className="model-stats">
+                            <span className="model-tokens">{model.tokens?.toLocaleString() || 0} tokens</span>
+                            <span className="model-requests">{model.requests || 0} req</span>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}

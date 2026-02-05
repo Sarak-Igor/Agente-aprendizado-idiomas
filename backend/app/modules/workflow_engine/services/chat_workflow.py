@@ -20,7 +20,7 @@ class ChatWorkflow(BaseWorkflow):
         self.normalizer = normalizer
         self.prompt_provider = prompt_provider
 
-    async def execute(self, context: WorkflowContext) -> Dict[str, Any]:
+    def execute(self, context: WorkflowContext) -> Dict[str, Any]:
         """
         Executa o fluxo completo de chat:
         1. Inicialização e Contexto
@@ -63,52 +63,92 @@ class ChatWorkflow(BaseWorkflow):
             "response_content": llm_result["content"],
             "feedback_type": llm_result["feedback_type"],
             "normalized_message": normalized_message,
-            "session": session
+            "session": session,
+            "selected_model": llm_result.get("selected_model"),
+            "notices": llm_result.get("notices", [])
         }
         
         context.log("Workflow de chat concluído")
         return result
 
     def _generate_llm_response(self, session, context, user_profile):
-        """Lógica interna de geração delegada ao router e provider"""
-        # Obter histórico para contexto
-        # Nota: O workflow usa o chat_service.db para buscar histórico
+        """Lógica interna de geração delegada ao router e provider com suporte a Fallback"""
         db = self.chat_service.db
         from app.modules.user_intelligence.models.models import ChatMessage
-        
+        from app.modules.core_llm.services.selector import UniversalModelSelector, SelectionRequest, ModelCapability
+        from app.modules.core_llm.services.orchestrator.base import InsufficientBalanceError, QuotaExceededError, LLMError
+
+        # 1. Obter histórico para contexto
         previous_messages = db.query(ChatMessage).filter(
             ChatMessage.session_id == session.id
         ).order_by(ChatMessage.created_at).all()
         
-        # Construir contexto
-        conversation_context = self._build_conversation_context(
-            session,
-            previous_messages,
-            context.get("content"),
-            context.get("transcription"),
-            user_profile
+        # 2. Seleção de Modelo Dinâmica (per-message)
+        # Permite detectar se o saldo acabou DURANTE a sessão e trocar de modelo
+        selector = UniversalModelSelector(db)
+        from app.modules.core_llm.services.selector.domain import AgentCategory
+        request = SelectionRequest(
+            user_id=str(session.user_id),
+            function_name="chat",
+            agent_category=AgentCategory.CHAT,
+            required_capabilities=[ModelCapability.TEXT_INPUT]
         )
         
-        # Obter serviço via Router
-        service = self.chat_service.chat_router.get_service(session.model_service)
-        if not service:
-            raise Exception(f"Serviço {session.model_service} não disponível")
-            
-        model_name = session.model_name
+        selection = selector.select_model(request)
+        context.set("selector_notices", selection.notices)
+
+        # Tentativa de chamada com Retry em caso de erro de Custo/Cota
+        candidates = [selection.selected_model] + selection.alternatives
+        last_error = None
         
-        # Chamada real ao LLM
-        if session.model_service == 'gemini':
-            response_text = service.generate_text(prompt=conversation_context, max_tokens=1000)
-        else:
-            response_text = service.generate_text(prompt=conversation_context, max_tokens=1000, model_name=model_name)
+        for candidate in candidates:
+            service = self.chat_service.chat_router.get_service(candidate.provider)
+            if not service: continue
             
-        # Analisar feedback
-        feedback_type = self.prompt_provider.analyze_feedback_type(response_text)
-        
-        return {
-            "content": response_text,
-            "feedback_type": feedback_type
-        }
+            try:
+                # Constrói contexto final
+                conversation_context = self._build_conversation_context(
+                    session, previous_messages, context.get("content"), context.get("transcription"), user_profile
+                )
+                
+                # Chamada real
+                response_text = service.generate_text(prompt=conversation_context, max_tokens=1000, model_name=candidate.model)
+                
+                # Se mudamos o modelo em relação ao que está na sessão, atualizamos a sessão
+                if session.model_name != candidate.model:
+                    session.model_service = candidate.provider
+                    session.model_name = candidate.model
+                    # db.commit() # Será commitado no final do ChatService.send_message
+                
+                # Analisar feedback
+                feedback_type = self.prompt_provider.analyze_feedback_type(response_text)
+                
+                return {
+                    "content": response_text,
+                    "feedback_type": feedback_type,
+                    "selected_model": candidate.model,
+                    "notices": selection.notices
+                }
+
+            except (InsufficientBalanceError, QuotaExceededError) as e:
+                logger.warning(f"Falha de Custo/Cota no modelo {candidate.model}: {e}")
+                # Registra no CircuitBreaker para o Seletor saber na PRÓXIMA vez
+                reason = "insufficient_balance" if isinstance(e, InsufficientBalanceError) else "quota_exceeded"
+                selector.availability.circuit_breaker.record_failure(str(candidate.db_model.get("id")), reason=reason)
+                
+                # Adiciona notice para o usuário
+                msg = "Saldo insuficiente" if reason == "insufficient_balance" else "Cota atingida"
+                notice = f"Aviso: {msg} no modelo {candidate.model}. Tentando alternativa..."
+                if notice not in selection.notices: selection.notices.append(notice)
+                last_error = e
+                continue
+            except Exception as e:
+                logger.error(f"Erro ao gerar resposta com {candidate.model}: {e}")
+                last_error = e
+                continue
+
+        # Se chegou aqui, todos os candidatos falharam
+        raise Exception(f"Não foi possível obter resposta da IA após tentar alternativas. Último erro: {last_error}")
 
     def _build_conversation_context(self, session, previous_messages, current_content, transcription, user_profile):
         """Constrói o prompt final para o LLM"""

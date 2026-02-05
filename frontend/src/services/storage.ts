@@ -1,3 +1,5 @@
+import { DEFAULT_SOURCE, DEFAULT_TARGET, isSupportedLanguage } from '../config/languages';
+
 const STORAGE_KEYS = {
   GEMINI_API_KEY: 'gemini_api_key',
   SOURCE_LANGUAGE: 'source_language',
@@ -22,19 +24,29 @@ export const storage = {
   },
 
   getSourceLanguage: (): string => {
-    return localStorage.getItem(STORAGE_KEYS.SOURCE_LANGUAGE) || 'en';
+    const stored = localStorage.getItem(STORAGE_KEYS.SOURCE_LANGUAGE) || DEFAULT_SOURCE;
+    return isSupportedLanguage(stored) ? stored : DEFAULT_SOURCE;
   },
 
   setSourceLanguage: (lang: string): void => {
-    localStorage.setItem(STORAGE_KEYS.SOURCE_LANGUAGE, lang);
+    if (isSupportedLanguage(lang)) {
+      localStorage.setItem(STORAGE_KEYS.SOURCE_LANGUAGE, lang);
+    } else {
+      console.warn(`Idioma não suportado ao salvar sourceLanguage: ${lang}`);
+    }
   },
 
   getTargetLanguage: (): string => {
-    return localStorage.getItem(STORAGE_KEYS.TARGET_LANGUAGE) || 'pt';
+    const stored = localStorage.getItem(STORAGE_KEYS.TARGET_LANGUAGE) || DEFAULT_TARGET;
+    return isSupportedLanguage(stored) ? stored : DEFAULT_TARGET;
   },
 
   setTargetLanguage: (lang: string): void => {
-    localStorage.setItem(STORAGE_KEYS.TARGET_LANGUAGE, lang);
+    if (isSupportedLanguage(lang)) {
+      localStorage.setItem(STORAGE_KEYS.TARGET_LANGUAGE, lang);
+    } else {
+      console.warn(`Idioma não suportado ao salvar targetLanguage: ${lang}`);
+    }
   },
 
   getPracticeStats: (): { total: number; correct: number; incorrect: number; streak: number; skipped: number } | null => {

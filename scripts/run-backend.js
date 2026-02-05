@@ -5,21 +5,27 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 
-const backendDir = path.join(__dirname, '..', 'backend');
+const rootDir = path.join(__dirname, '..');
+const backendDir = path.join(rootDir, 'backend');
 const isWindows = os.platform() === 'win32';
 
 // Detecta o Python do ambiente virtual
 let pythonPath;
 
-if (isWindows) {
-  const venvPython = path.join(backendDir, 'venv', 'Scripts', 'python.exe');
-  if (fs.existsSync(venvPython)) {
-    pythonPath = venvPython;
-  }
-} else {
-  const venvPython = path.join(backendDir, 'venv', 'bin', 'python');
-  if (fs.existsSync(venvPython)) {
-    pythonPath = venvPython;
+const possiblePaths = isWindows ? [
+  path.join(rootDir, '.venv', 'Scripts', 'python.exe'),
+  path.join(backendDir, 'venv', 'Scripts', 'python.exe'),
+  path.join(backendDir, '.venv', 'Scripts', 'python.exe')
+] : [
+  path.join(rootDir, '.venv', 'bin', 'python'),
+  path.join(backendDir, 'venv', 'bin', 'python'),
+  path.join(backendDir, '.venv', 'bin', 'python')
+];
+
+for (const p of possiblePaths) {
+  if (fs.existsSync(p)) {
+    pythonPath = p;
+    break;
   }
 }
 

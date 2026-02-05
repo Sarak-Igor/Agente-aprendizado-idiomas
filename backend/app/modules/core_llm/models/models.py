@@ -54,6 +54,7 @@ class ModelCatalog(Base):
     license_type = Column(String(50), nullable=True, index=True)
     organization = Column(String(100), nullable=True)
     aliases = Column(JSONB, nullable=False, server_default='[]')
+    capabilities = Column(JSONB, nullable=False, server_default='["text_input"]')  # text_input, image_input, audio_input, etc.
     source = Column(String(50), nullable=False, default="chatbot_arena")
     last_updated = Column(DateTime(timezone=True), nullable=True)
     is_active = Column(Boolean, default=True, nullable=False, index=True)

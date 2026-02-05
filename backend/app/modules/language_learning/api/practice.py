@@ -378,47 +378,77 @@ async def get_music_phrase(
         if video_ids_list:
             query = query.filter(Video.id.in_(video_ids_list))
         
-        # Filtra por direção de tradução
-        if direction == "en-to-pt":
-            query = query.filter(
-                Translation.source_language == "en",
-                Translation.target_language == "pt"
-            )
-        else:  # pt-to-en
-            query = query.filter(
-                Translation.source_language == "pt",
-                Translation.target_language == "en"
-            )
-        
+        # Não filtramos estritamente por direção — aceitamos traduções em qualquer direção
         translations = query.all()
-        
+
         if not translations:
             raise HTTPException(
                 status_code=404,
                 detail="Nenhuma tradução encontrada com os critérios especificados"
             )
-        
-        # Seleciona tradução aleatória
-        translation = random.choice(translations)
+
+        # Construímos uma lista de candidatos que podem atender à direção solicitada,
+        # incluindo traduções na direção inversa (que serão invertidas ao retornar).
+        candidates = []
+        for t in translations:
+            if direction == "en-to-pt":
+                if t.source_language == "en" and t.target_language == "pt":
+                    candidates.append((t, False))
+                elif t.source_language == "pt" and t.target_language == "en":
+                    candidates.append((t, True))  # invertendo
+            elif direction == "pt-to-en":
+                if t.source_language == "pt" and t.target_language == "en":
+                    candidates.append((t, False))
+                elif t.source_language == "en" and t.target_language == "pt":
+                    candidates.append((t, True))
+            else:
+                # Se vier 'all' ou outro, aceita ambos sem inversão
+                candidates.append((t, False))
+
+        if not candidates:
+            raise HTTPException(
+                status_code=404,
+                detail="Nenhuma tradução encontrada para a direção solicitada"
+            )
+
+        # Seleciona candidato aleatório
+        translation, inverted = random.choice(candidates)
         video = db.query(Video).filter(Video.id == translation.video_id).first()
-        
-        # Filtra segmentos por dificuldade
-        all_segments = translation.segments
-        filtered_segments = filter_segments_by_difficulty(all_segments, difficulty)
-        
+
+        # Prepara segmentos: se precisarmos inverter (para atender a direção), trocamos original/translated
+        all_segments = translation.segments or []
+        if inverted:
+            transformed_segments = []
+            for seg in all_segments:
+                # cria cópia onde 'original' é o texto que será apresentado ao aluno
+                transformed_segments.append({
+                    **seg,
+                    'original': seg.get('translated', ''),
+                    'translated': seg.get('original', ''),
+                })
+            use_segments = transformed_segments
+            resp_source = 'en' if direction == 'en-to-pt' else 'pt'
+            resp_target = 'pt' if direction == 'en-to-pt' else 'en'
+        else:
+            use_segments = all_segments
+            resp_source = translation.source_language
+            resp_target = translation.target_language
+
+        filtered_segments = filter_segments_by_difficulty(use_segments, difficulty)
+
         if not filtered_segments:
             # Se não há segmentos na dificuldade, usa todos
-            filtered_segments = all_segments
-        
+            filtered_segments = use_segments
+
         # Seleciona segmento aleatório
         segment = random.choice(filtered_segments)
-        
+
         return {
             "id": f"{translation.id}-{segment.get('start', 0)}",
             "original": segment.get('original', ''),
             "translated": segment.get('translated', ''),
-            "source_language": translation.source_language,
-            "target_language": translation.target_language,
+            "source_language": resp_source,
+            "target_language": resp_target,
             "video_title": video.title if video else None,
             "video_id": str(video.id) if video else None
         }
@@ -503,10 +533,43 @@ async def generate_practice_phrase(
         available_services = get_available_llm_services(db, current_user.id, api_keys_from_request)
         
         if not available_services:
-            raise HTTPException(
-                status_code=400,
-                detail="Nenhum serviço LLM configurado. Configure pelo menos uma chave de API (Gemini, OpenRouter, Groq ou Together AI) para gerar frases."
-            )
+            logger.info("Nenhum serviço LLM configurado — usando fallback com segmentos existentes")
+            # Fallback: pega um segmento existente das traduções e retorna como 'generated' sem LLM
+            try:
+                # Escolhe tradução aleatória das já filtradas
+                translation = random.choice(translations)
+                video = db.query(Video).filter(Video.id == translation.video_id).first()
+                segments = translation.segments or []
+                filtered_segments = filter_segments_by_difficulty(segments, difficulty)
+                if not filtered_segments:
+                    filtered_segments = segments
+                if not filtered_segments:
+                    raise HTTPException(status_code=404, detail="Nenhum segmento disponível para fallback")
+                segment = random.choice(filtered_segments)
+                source_lang = "en" if direction == "en-to-pt" else "pt"
+                target_lang = "pt" if direction == "en-to-pt" else "en"
+                # Cria ID gerado
+                import hashlib
+                phrase_hash = hashlib.md5((str(translation.id) + str(segment.get('start', 0))).encode()).hexdigest()[:8]
+                return {
+                    "id": f"generated-fallback-{phrase_hash}",
+                    "original": segment.get('original', ''),
+                    "translated": segment.get('translated', ''),
+                    "source_language": source_lang,
+                    "target_language": target_lang,
+                    "video_title": video.title if video else None,
+                    "video_id": str(video.id) if video else None,
+                    "model_used": "fallback",
+                    "service_used": "fallback"
+                }
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.exception("Erro no fallback de new-context")
+                raise HTTPException(
+                    status_code=503,
+                    detail="Nenhum serviço LLM configurado e fallback falhou. Configure um serviço LLM ou processe traduções."
+                )
         
         # Se há agente preferido, tenta usá-lo primeiro
         if preferred_agent:
@@ -802,24 +865,37 @@ def filter_segments_by_difficulty(segments: List[dict], difficulty: str) -> List
 
 def extract_words_from_translations(
     translations: List[Translation],
-    direction: str,
+    direction: Optional[str],
     difficulty: str
 ) -> List[str]:
-    """Extrai palavras únicas das traduções"""
+    """Extrai palavras únicas das traduções.
+
+    If direction == 'en-to-pt' -> extract from original (source).
+    If direction == 'pt-to-en' -> extract from translated (source for that direction).
+    If direction == 'all' or None -> extract from both original and translated fields.
+    """
     words = set()
-    
+
     for translation in translations:
         for segment in translation.segments:
-            text = segment.get('original', '') if direction == "en-to-pt" else segment.get('translated', '')
-            
-            # Remove notas musicais e caracteres especiais
-            text = re.sub(r'♪+', '', text)
-            text = re.sub(r'[^\w\s]', ' ', text)
-            
-            # Extrai palavras
-            segment_words = [w.lower() for w in text.split() if len(w) > 2]
-            words.update(segment_words)
-    
+            texts: List[str] = []
+            if direction == "en-to-pt":
+                texts = [segment.get('original', '')]
+            elif direction == "pt-to-en":
+                texts = [segment.get('translated', '')]
+            else:
+                # 'all' or unknown: take both original and translated
+                texts = [segment.get('original', ''), segment.get('translated', '')]
+
+            for text in texts:
+                # Remove notas musicais e caracteres especiais
+                text = re.sub(r'♪+', '', text)
+                text = re.sub(r'[^\w\s]', ' ', text)
+
+                # Extrai palavras
+                segment_words = [w.lower() for w in text.split() if len(w) > 2]
+                words.update(segment_words)
+
     # Filtra por dificuldade
     if difficulty == "easy":
         # Palavras comuns e curtas
@@ -828,8 +904,64 @@ def extract_words_from_translations(
     elif difficulty == "hard":
         # Palavras longas e menos comuns
         words = [w for w in words if len(w) >= 6]
-    
+
     return list(words)[:100]  # Limita a 100 palavras
+
+
+@router.post("/words")
+async def get_practice_words(
+    request: dict,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Retorna uma lista de palavras extraídas das traduções do usuário.
+
+    Body:
+        direction: 'en-to-pt' ou 'pt-to-en'
+        difficulty: 'easy' | 'medium' | 'hard'
+        video_ids: optional list of video ids
+    """
+    try:
+        direction = request.get('direction', 'en-to-pt')
+        difficulty = request.get('difficulty', 'medium')
+        video_ids = request.get('video_ids')
+
+        # Busca traduções disponíveis (apenas do usuário atual)
+        query = db.query(Translation).join(Video).filter(
+            Translation.user_id == current_user.id,
+            Video.user_id == current_user.id
+        )
+
+        if video_ids:
+            video_ids_list = [UUID(vid) for vid in video_ids]
+            query = query.filter(Video.id.in_(video_ids_list))
+
+        # Filtra por direção
+        if direction == "en-to-pt":
+            query = query.filter(
+                Translation.source_language == "en",
+                Translation.target_language == "pt"
+            )
+        else:
+            query = query.filter(
+                Translation.source_language == "pt",
+                Translation.target_language == "en"
+            )
+
+        translations = query.all()
+
+        if not translations:
+            raise HTTPException(status_code=404, detail="Nenhuma tradução encontrada")
+
+        words = extract_words_from_translations(translations, direction, difficulty)
+
+        return {"words": words}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Erro ao extrair palavras")
+        raise HTTPException(status_code=500, detail=f"Erro ao extrair palavras: {str(e)}")
 
 
 def generate_phrase_with_llm(

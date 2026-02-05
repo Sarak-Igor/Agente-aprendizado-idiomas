@@ -7,12 +7,16 @@
     "dev:frontend": "cd frontend && npm run dev",
     "dev:backend": "node scripts/run-backend.js",
     "install:frontend": "cd frontend && npm install",
-    "install:backend": "cd backend && (if exist venv\\Scripts\\pip.exe (venv\\Scripts\\pip.exe install -r requirements.txt) else (if exist venv\\bin\\pip (venv\\bin\\pip install -r requirements.txt) else (pip install -r requirements.txt)))",
+    "install:backend": "if exist .venv\\Scripts\\pip.exe (.venv\\Scripts\\pip.exe install -r backend/requirements.txt) else (if exist backend\\venv\\Scripts\\pip.exe (backend\\venv\\Scripts\\pip.exe install -r backend/requirements.txt) else (pip install -r backend/requirements.txt))",
     "install:all": "npm run install:frontend && npm run install:backend",
     "build:frontend": "cd frontend && npm run build",
     "init:db": "node scripts/init-db.js"
   },
-  "keywords": ["youtube", "translation", "subtitles"],
+  "keywords": [
+    "youtube",
+    "translation",
+    "subtitles"
+  ],
   "author": "",
   "license": "MIT",
   "devDependencies": {

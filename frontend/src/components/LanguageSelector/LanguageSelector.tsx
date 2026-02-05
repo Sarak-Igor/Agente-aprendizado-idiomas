@@ -1,31 +1,30 @@
 import './LanguageSelector.css';
+import {
+  SUPPORTED_TRANSLATION_LANGUAGES,
+} from '../../config/languages';
+
+interface LanguageOption {
+  code: string;
+  name: string;
+}
 
 interface LanguageSelectorProps {
   sourceLanguage: string;
   targetLanguage: string;
   onSourceChange: (lang: string) => void;
   onTargetChange: (lang: string) => void;
+  languages?: LanguageOption[];
 }
-
-const LANGUAGES = [
-  { code: 'en', name: 'Inglês' },
-  { code: 'pt', name: 'Português' },
-  { code: 'es', name: 'Espanhol' },
-  { code: 'fr', name: 'Francês' },
-  { code: 'de', name: 'Alemão' },
-  { code: 'it', name: 'Italiano' },
-  { code: 'ja', name: 'Japonês' },
-  { code: 'ko', name: 'Coreano' },
-  { code: 'zh', name: 'Chinês' },
-  { code: 'ru', name: 'Russo' },
-];
 
 export const LanguageSelector = ({
   sourceLanguage,
   targetLanguage,
   onSourceChange,
   onTargetChange,
+  languages,
 }: LanguageSelectorProps) => {
+  const options = languages && languages.length > 0 ? languages : SUPPORTED_TRANSLATION_LANGUAGES;
+
   return (
     <div className="language-selector">
       <div className="language-group">
@@ -35,16 +34,16 @@ export const LanguageSelector = ({
           onChange={(e) => onSourceChange(e.target.value)}
           className="language-select"
         >
-          {LANGUAGES.map((lang) => (
+          {options.map((lang) => (
             <option key={lang.code} value={lang.code}>
               {lang.name}
             </option>
           ))}
         </select>
       </div>
-      
+
       <div className="language-arrow">→</div>
-      
+
       <div className="language-group">
         <label className="language-label">Idioma de Tradução:</label>
         <select
@@ -52,7 +51,7 @@ export const LanguageSelector = ({
           onChange={(e) => onTargetChange(e.target.value)}
           className="language-select"
         >
-          {LANGUAGES.map((lang) => (
+          {options.map((lang) => (
             <option key={lang.code} value={lang.code}>
               {lang.name}
             </option>

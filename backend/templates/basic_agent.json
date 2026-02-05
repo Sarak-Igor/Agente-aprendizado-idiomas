@@ -1,0 +1,41 @@
+{
+    "name": "Professor de Inglês",
+    "description": "Um agente especialista em ensino de idiomas, configurado para corrigir gramática e manter conversação.",
+    "version": "1.0.0",
+    "nodes": [
+        {
+            "id": "trigger-1",
+            "type": "trigger",
+            "label": "Início da Conversa",
+            "position": {
+                "x": 100,
+                "y": 200
+            },
+            "data": {}
+        },
+        {
+            "id": "brain-1",
+            "type": "brain",
+            "label": "Cérebro do Professor",
+            "position": {
+                "x": 400,
+                "y": 200
+            },
+            "data": {
+                "prompt": "Você é um professor de inglês paciente e prestativo. Corrija os erros do usuário sutilmente e mantenha a conversa fluindo.\n\nUsuário: {{input}}",
+                "model": "google/gemini-2.0-flash-exp:free"
+            }
+        }
+    ],
+    "edges": [
+        {
+            "id": "edge-1",
+            "source": "trigger-1",
+            "target": "brain-1"
+        }
+    ],
+    "settings": {
+        "voice": "active",
+        "language": "en-US"
+    }
+}

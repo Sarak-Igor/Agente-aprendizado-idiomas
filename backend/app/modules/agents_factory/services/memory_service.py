@@ -71,12 +71,3 @@ class MemoryService:
         except Exception as e:
             logger.error(f"Erro ao gerar resumo para a sessão {session_id}: {str(e)}")
             return session.summary or ""
-
-    async def extract_semantic_facts(self, session_id: UUID) -> Dict[str, Any]:
-        """
-        Extrai fatos e preferências estruturadas da conversa.
-        Ex: "Usuário prefere respostas curtas", "Usuário está trabalhando no projeto X".
-        """
-        # Implementação futura da extração estruturada via JSON
-        # Por enquanto, mantemos o placeholder para a evolução da Fase 1
-        return {}

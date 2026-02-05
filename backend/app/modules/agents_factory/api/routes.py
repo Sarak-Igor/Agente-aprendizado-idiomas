@@ -1,14 +1,21 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Dict, Any
 from uuid import UUID
+import logging
+
+logger = logging.getLogger(__name__)
 
 from app.database import get_db
 from app.modules.agents_factory.schemas import schemas
 from app.modules.agents_factory.models.models import Agent, AgentSession
 from app.modules.agents_factory.services.agent_chat_service import AgentChatService
+from app.modules.agents_factory.services.agent_storage_service import AgentStorageService
+from app.modules.agents_factory.services.blueprint_runner import BlueprintRunner
 
 router = APIRouter(prefix="/agents", tags=["Agents Factory"])
+storage_service = AgentStorageService()
+runner_service = BlueprintRunner()
 
 @router.get("/available-models")
 async def get_available_models(db: Session = Depends(get_db)):
@@ -59,11 +66,66 @@ def create_agent(agent_in: schemas.AgentCreate, db: Session = Depends(get_db)):
     db.add(db_agent)
     db.commit()
     db.refresh(db_agent)
+    
+    # Cria estrutura de diretórios isolada para o agente
+    try:
+        storage_service.create_agent_structure(str(db_agent.id))
+    except Exception as e:
+        logger.error(f"Erro ao criar storage para agente {db_agent.id}: {e}")
+        # Não falhamos a request, mas logamos o erro. O storage pode ser criado depois ao salvar blueprint.
+
     return db_agent
 
 @router.get("/", response_model=List[schemas.AgentResponse])
 def list_agents(db: Session = Depends(get_db)):
     return db.query(Agent).all()
+
+@router.post("/{agent_id}/blueprint")
+def save_agent_blueprint(agent_id: UUID, blueprint: schemas.Blueprint, db: Session = Depends(get_db)):
+    """Salva a definição do fluxo (blueprint) no storage do agente."""
+    agent = db.query(Agent).filter(Agent.id == agent_id).first()
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agente não encontrado")
+    
+    try:
+        path = storage_service.save_blueprint(str(agent_id), blueprint.model_dump())
+        return {"status": "success", "path": path}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao salvar blueprint: {str(e)}")
+
+@router.get("/{agent_id}/blueprint", response_model=schemas.Blueprint)
+def load_agent_blueprint(agent_id: UUID, db: Session = Depends(get_db)):
+    """Carrega o blueprint do storage do agente."""
+    agent = db.query(Agent).filter(Agent.id == agent_id).first()
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agente não encontrado")
+    
+    try:
+        blueprint = storage_service.load_blueprint(str(agent_id))
+        if not blueprint:
+            raise HTTPException(status_code=404, detail="Blueprint não encontrado para este agente")
+        return blueprint
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao carregar blueprint: {str(e)}")
+
+@router.post("/{agent_id}/run")
+async def run_agent_blueprint(agent_id: UUID, input_data: Dict[str, Any] = {}, db: Session = Depends(get_db)):
+    """Executa o blueprint do agente (Motor de Execução)."""
+    agent = db.query(Agent).filter(Agent.id == agent_id).first()
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agente não encontrado")
+    
+    try:
+        # Executa de forma assíncrona (em produção, isso deveria ir para uma fila como Celery/BullMQ)
+        result = await runner_service.run_agent(str(agent_id), input_data, db=db, user_id=str(agent.user_id))
+        return {"status": "completed", "result": result}
+    except ValueError as ve:
+         raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        logger.error(f"Erro na execução do agente {agent_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Erro interno de execução: {str(e)}")
 
 # --- Endpoints de Sessão e Chat ---
 
@@ -127,7 +189,6 @@ async def get_session(session_id: UUID, db: Session = Depends(get_db)):
         "id": session.id,
         "agent_id": session.agent_id,
         "summary": session.summary,
-        "semantic_context": session.semantic_context,
         "message_count": session.message_count,
         "agent": {
             "name": session.agent.name,
@@ -147,6 +208,7 @@ from app.modules.agents_factory.services.rag_service import RAGService
 from app.modules.agents_factory.models.models import AgentDocument
 import shutil
 import os
+# Logger já definido no topo do arquivo
 
 @router.post("/sessions/{session_id}/documents")
 async def upload_document(

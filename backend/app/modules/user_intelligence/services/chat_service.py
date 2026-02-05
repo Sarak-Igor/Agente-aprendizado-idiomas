@@ -78,7 +78,8 @@ class ChatService:
             model_info = self.chat_router.select_best_model(
                 mode=mode,
                 user_profile=user_profile,
-                preferred_service=preferred_service
+                preferred_service=preferred_service,
+                db=self.db
             )
         
         if not model_info:
@@ -163,13 +164,8 @@ class ChatService:
         # mas estruturado internamente)
         workflow = ChatWorkflow(self, self.message_analyzer, self.language_normalizer, self.prompt_provider)
         
-        # Como o método original não é async, vamos usar um helper ou rodar de forma síncrona
-        # Em um projeto real, send_message deveria ser async
-        try:
-            loop = asyncio.get_event_loop()
-            result = loop.run_until_complete(workflow.execute(context))
-        except RuntimeError:
-            result = asyncio.run(workflow.execute(context))
+        # Workflow agora é síncrono - chamada direta
+        result = workflow.execute(context)
 
         # Cria mensagem do usuário (Persistência)
         user_message = ChatMessage(
@@ -188,7 +184,11 @@ class ChatService:
             role="assistant",
             content=result['response_content'],
             content_type="text",
-            feedback_type=result.get('feedback_type')
+            feedback_type=result.get('feedback_type'),
+            analysis_metadata={
+                "selected_model": result.get('selected_model'),
+                "notices": result.get('notices', [])
+            }
         )
         self.db.add(assistant_message)
         

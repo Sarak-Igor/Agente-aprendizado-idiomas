@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { videoApi } from '../../services/api';
 import { storage } from '../../services/storage';
 import './KnowledgePractice.css';
+import { SUPPORTED_PRACTICE_DIRECTIONS } from '../../config/languages';
+import { usePracticeOrchestrator } from '../../hooks/usePracticeOrchestrator';
 
 interface PracticePhrase {
   id: string;
@@ -22,13 +24,18 @@ interface PracticeStats {
   skipped: number;
 }
 
-type PracticeMode = 'music-context' | 'new-context' | 'words-only';
+type PracticeMode = 'music-context' | 'new-context';
 type TranslationDirection = 'en-to-pt' | 'pt-to-en';
 type Difficulty = 'easy' | 'medium' | 'hard';
 
 export const KnowledgePractice = () => {
   const [mode, setMode] = useState<PracticeMode>('music-context');
   const [direction, setDirection] = useState<TranslationDirection>('en-to-pt');
+  const [selectedModes, setSelectedModes] = useState<PracticeMode[]>(['music-context','new-context']);
+  const [selectedDirections, setSelectedDirections] = useState<TranslationDirection[]>(['en-to-pt','pt-to-en']);
+  const orchestrator = usePracticeOrchestrator();
+  const [sessionRunning, setSessionRunning] = useState(false);
+  const [currentCategory, setCurrentCategory] = useState<{ mode: string; direction: string } | null>(null);
   const [difficulty, setDifficulty] = useState<Difficulty>('medium');
   const [currentPhrase, setCurrentPhrase] = useState<PracticePhrase | null>(null);
   const [userAnswer, setUserAnswer] = useState('');
@@ -57,9 +64,8 @@ export const KnowledgePractice = () => {
   const [customPrompt, setCustomPrompt] = useState('');
   const [selectedAgent, setSelectedAgent] = useState<{ service: string; model: string } | null>(null);
   const [availableAgents, setAvailableAgents] = useState<Array<{ service: string; model: string; display_name: string; available: boolean }>>([]);
-  const [customWords, setCustomWords] = useState<string[]>([]);
   const [currentWordIndex, setCurrentWordIndex] = useState(0);
-  const [wordTranslations, setWordTranslations] = useState<{ [word: string]: string }>({});
+  const [customWords, setCustomWords] = useState<string[]>([]);
 
   useEffect(() => {
     loadAvailableVideos();
@@ -96,13 +102,13 @@ Agora crie a frase usando as palavras: {words}`;
 
   // Salva frase não respondida sempre que mudar
   useEffect(() => {
-    if (currentPhrase && !showAnswer && !userAnswer.trim() && mode !== 'words-only') {
+    if (currentPhrase && !showAnswer && !userAnswer.trim()) {
       storage.saveCurrentPhrase(currentPhrase, userAnswer);
     } else if (showAnswer || userAnswer.trim()) {
       // Limpa se foi respondida
       storage.clearCurrentPhrase();
     }
-  }, [currentPhrase, showAnswer, userAnswer, mode]);
+  }, [currentPhrase, showAnswer, userAnswer]);
 
   const loadAvailableVideos = async () => {
     try {
@@ -187,6 +193,11 @@ Agora crie a frase usando as palavras: {words}`;
         });
       }
 
+      // set currentCategory based on returned phrase languages (backend may have inverted)
+      const src = phrase.source_language || direction;
+      const tgt = phrase.target_language || (direction === 'en-to-pt' ? 'pt' : 'en');
+      const effectiveDirection = src === 'en' && tgt === 'pt' ? 'en-to-pt' : 'pt-to-en';
+      setCurrentCategory({ mode: mode, direction: effectiveDirection });
       setCurrentPhrase(phrase);
       // Salva frase não respondida
       storage.saveCurrentPhrase(phrase, '');
@@ -197,78 +208,89 @@ Agora crie a frase usando as palavras: {words}`;
     }
   };
 
-  const loadNextWord = () => {
-    if (customWords.length === 0) {
-      alert('Adicione palavras primeiro!');
+  // Orchestrator-based flow (round-robin). Start session using selectedModes/selectedDirections
+  const startSession = async () => {
+    if (!selectedModes || selectedModes.length === 0) {
+      alert('Selecione ao menos uma modalidade.');
       return;
     }
-    
-    if (currentWordIndex < customWords.length - 1) {
-      setCurrentWordIndex(currentWordIndex + 1);
-      setUserAnswer('');
+    if (!selectedDirections || selectedDirections.length === 0) {
+      alert('Selecione ao menos uma direção.');
+      return;
+    }
+    console.debug('Starting session with', { selectedModes, selectedDirections, difficulty, selectedVideos });
+    orchestrator.start(selectedModes as any, selectedDirections as any, difficulty, selectedVideos.length > 0 ? selectedVideos : undefined, undefined, customPrompt || undefined, selectedAgent || undefined);
+    setSessionRunning(true);
+    // fetch first item
+    const item = await orchestrator.next(difficulty, selectedVideos.length > 0 ? selectedVideos : undefined, undefined, customPrompt || undefined, selectedAgent || undefined);
+    if (item) {
+      // derive effective direction from payload (backend may have inverted)
+      const src = item.payload.source_language || item.direction?.split('-')[0] || 'en';
+      const tgt = item.payload.target_language || item.direction?.split('-')[1] || 'pt';
+      const effectiveDirection = src === 'en' && tgt === 'pt' ? 'en-to-pt' : 'pt-to-en';
+      setCurrentCategory({ mode: item.mode, direction: effectiveDirection });
+      setCurrentPhrase(item.payload);
       setShowAnswer(false);
+      setUserAnswer('');
       setIsCorrect(null);
     } else {
-      // Volta para o início
-      setCurrentWordIndex(0);
-      setUserAnswer('');
-      setShowAnswer(false);
-      setIsCorrect(null);
+      alert('Não foi possível obter exercícios com as opções selecionadas.');
     }
   };
 
-  const checkWordTranslation = async (word: string, translation: string) => {
-    if (!word || !translation.trim()) {
+  const stopSession = () => {
+    orchestrator.stop();
+    setSessionRunning(false);
+    setCurrentCategory(null);
+  };
+
+  const nextSessionItem = async () => {
+    if (!sessionRunning) {
+      // fallback to previous behavior
+      await loadNextPhrase();
       return;
     }
-
     try {
-      // Para palavras, usamos uma verificação mais simples
-      // Busca tradução no backend ou usa verificação direta
-      const checkParams: any = {
-        phrase_id: `word-${word}`,
-        user_answer: translation.trim(),
-        direction,
-        correct_answer: wordTranslations[word] || word, // Se não tiver tradução salva, usa a palavra
-      };
-      
-      const result = await videoApi.checkPracticeAnswer(checkParams);
-      setIsCorrect(result.is_correct);
-      setShowAnswer(true);
-      updateStats(result.is_correct);
-      
-      // Salva tradução correta sempre (para usar depois)
-      if (result.correct_answer) {
-        setWordTranslations(prev => ({
-          ...prev,
-          [word]: result.correct_answer
-        }));
+      const item = await orchestrator.next(difficulty, selectedVideos.length > 0 ? selectedVideos : undefined, undefined, customPrompt || undefined, selectedAgent || undefined);
+      if (item) {
+        const src = item.payload.source_language || item.direction?.split('-')[0] || 'en';
+        const tgt = item.payload.target_language || item.direction?.split('-')[1] || 'pt';
+        const effectiveDirection = src === 'en' && tgt === 'pt' ? 'en-to-pt' : 'pt-to-en';
+        setCurrentCategory({ mode: item.mode, direction: effectiveDirection });
+        setCurrentPhrase(item.payload);
+        setShowAnswer(false);
+        setUserAnswer('');
+        setIsCorrect(null);
+      } else {
+        // Could not fetch any combo after trying all combos
+        alert('Não há mais exercícios disponíveis no momento para as opções selecionadas. A sessão será encerrada.');
+        stopSession();
       }
-    } catch (error: any) {
-      const errorMessage = error.response?.data?.detail || error.message || 'Erro ao verificar tradução';
-      console.error('Erro ao verificar tradução:', error);
-      alert(errorMessage);
+    } catch (err) {
+      console.error('Erro ao obter próximo exercício do orquestrador:', err);
+      // Try one more time; if still fails, stop session.
+      try {
+        const item = await orchestrator.next(difficulty, selectedVideos.length > 0 ? selectedVideos : undefined, undefined, customPrompt || undefined, selectedAgent || undefined);
+        if (item) {
+          const src = item.payload.source_language || item.direction?.split('-')[0] || 'en';
+          const tgt = item.payload.target_language || item.direction?.split('-')[1] || 'pt';
+          const effectiveDirection = src === 'en' && tgt === 'pt' ? 'en-to-pt' : 'pt-to-en';
+          setCurrentCategory({ mode: item.mode, direction: effectiveDirection });
+          setCurrentPhrase(item.payload);
+          setShowAnswer(false);
+          setUserAnswer('');
+          setIsCorrect(null);
+          return;
+        }
+      } catch (err2) {
+        console.error('Segunda tentativa falhou:', err2);
+      }
+      alert('Erro ao obter próximo exercício. A sessão será encerrada.');
+      stopSession();
     }
   };
 
-  const handleAddWords = (wordsText: string) => {
-    const words = wordsText
-      .split(/[,\n\r]+/)
-      .map(w => w.trim())
-      .filter(w => w.length > 0);
-    
-    if (words.length === 0) {
-      alert('Digite pelo menos uma palavra!');
-      return;
-    }
-    
-    setCustomWords(words);
-    setCurrentWordIndex(0);
-    setUserAnswer('');
-    setShowAnswer(false);
-    setIsCorrect(null);
-    setWordTranslations({});
-  };
+  // word-related flows removed (Palavra mode was disabled per request)
 
   const checkAnswer = async () => {
     if (!currentPhrase || !userAnswer.trim()) {
@@ -282,16 +304,17 @@ Agora crie a frase usando as palavras: {words}`;
     }
 
     try {
+      const effectiveDirection = currentCategory ? (currentCategory.direction as string) : direction;
       // Para frases geradas, precisa enviar a resposta correta também
       const checkParams: any = {
         phrase_id: currentPhrase.id,
         user_answer: userAnswer.trim(),
-        direction,
+        direction: effectiveDirection,
       };
       
       // Se for frase gerada, adiciona resposta correta
       if (currentPhrase.id && currentPhrase.id.startsWith('generated-')) {
-        const correctAnswer = direction === 'en-to-pt' 
+        const correctAnswer = effectiveDirection === 'en-to-pt' 
           ? currentPhrase.translated 
           : currentPhrase.original;
         
@@ -348,14 +371,14 @@ Agora crie a frase usando as palavras: {words}`;
       return newStats;
     });
     
-    // Limpa frase atual e carrega próxima
+    // Limpa frase atual e carrega próxima (usa orquestrador se sessão ativa)
     setShowAnswer(false);
     setUserAnswer('');
     setIsCorrect(null);
     storage.clearCurrentPhrase();
     
-    if (mode === 'words-only' && customWords.length > 0) {
-      loadNextWord();
+    if (sessionRunning) {
+      nextSessionItem();
     } else {
       loadNextPhrase();
     }
@@ -435,101 +458,87 @@ Agora crie a frase usando as palavras: {words}`;
   return (
     <div className="knowledge-practice">
       <div className="practice-header">
-        <h2>📚 Treinar Inglês com Músicas</h2>
-        <p>Use as letras das músicas traduzidas para praticar inglês</p>
+        <h2>📚 Treinar idioma</h2>
+        <p>Use as letras das músicas traduzidas para praticar e treinar o idioma</p>
+      </div>
+      <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '12px' }}>
+        {!sessionRunning ? (
+          <button onClick={startSession} className="start-btn" style={{ padding: '8px 12px' }}>
+            ▶️ Iniciar Sessão (multiseleção)
+          </button>
+        ) : (
+          <button onClick={stopSession} className="start-btn" style={{ padding: '8px 12px', background: '#e74c3c' }}>
+            ⏹️ Encerrar Sessão
+          </button>
+        )}
+        <div style={{ color: 'var(--text-secondary)', fontSize: '0.95rem' }}>
+          {sessionRunning ? 'Sessão ativa — perguntas serão intercaladas entre as seleções.' : 'Sessão inativa'}
+        </div>
       </div>
 
       <div className="practice-config">
         <div className="config-section">
-          <label>Modalidade:</label>
-          <div className="radio-group">
+          <label>Modalidade (selecione uma ou mais):</label>
+          <div className="checkbox-group">
             <label>
               <input
-                type="radio"
+                type="checkbox"
                 value="music-context"
-                checked={mode === 'music-context'}
-                onChange={(e) => setMode(e.target.value as PracticeMode)}
+                checked={selectedModes.includes('music-context')}
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  setSelectedModes((prev) => {
+                    if (checked) return [...prev, 'music-context'];
+                    return prev.filter((p) => p !== 'music-context');
+                  });
+                }}
               />
               <span>Frases das Músicas</span>
             </label>
             <label>
               <input
-                type="radio"
+                type="checkbox"
                 value="new-context"
-                checked={mode === 'new-context'}
-                onChange={(e) => setMode(e.target.value as PracticeMode)}
+                checked={selectedModes.includes('new-context')}
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  setSelectedModes((prev) => {
+                    if (checked) return [...prev, 'new-context'];
+                    return prev.filter((p) => p !== 'new-context');
+                  });
+                }}
               />
-              <span>Palavras em Novos Contextos</span>
-            </label>
-            <label>
-              <input
-                type="radio"
-                value="words-only"
-                checked={mode === 'words-only'}
-                onChange={(e) => setMode(e.target.value as PracticeMode)}
-              />
-              <span>Adicionar Palavras</span>
+              <span>Frases com Novo Contexto</span>
             </label>
           </div>
         </div>
+        {/* Palavra config removed */}
 
-        {mode === 'words-only' && (
-          <div className="config-section">
-            <label>Adicionar Palavras (separadas por vírgula ou linha):</label>
-            <textarea
-              placeholder="Digite as palavras aqui, separadas por vírgula ou uma por linha...&#10;Exemplo: love, heart, beautiful&#10;ou&#10;love&#10;heart&#10;beautiful"
-              className="words-input"
-              rows={4}
-              onBlur={(e) => {
-                const words = e.target.value;
-                if (words.trim()) {
-                  handleAddWords(words);
-                }
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && e.ctrlKey) {
-                  handleAddWords(e.currentTarget.value);
-                }
-              }}
-            />
-            {customWords.length > 0 && (
-              <div className="words-info">
-                <p>{customWords.length} palavra(s) adicionada(s)</p>
-                <button onClick={() => {
-                  setCustomWords([]);
-                  setCurrentWordIndex(0);
-                  setUserAnswer('');
-                  setShowAnswer(false);
-                  setIsCorrect(null);
-                }} className="clear-words-btn">
-                  Limpar Palavras
-                </button>
-              </div>
-            )}
-          </div>
-        )}
+        {/* Palavra exercise removed */}
 
         <div className="config-section">
-          <label>Direção da Tradução:</label>
-          <div className="radio-group">
-            <label>
-              <input
-                type="radio"
-                value="en-to-pt"
-                checked={direction === 'en-to-pt'}
-                onChange={(e) => setDirection(e.target.value as TranslationDirection)}
-              />
-              <span>Inglês → Português</span>
-            </label>
-            <label>
-              <input
-                type="radio"
-                value="pt-to-en"
-                checked={direction === 'pt-to-en'}
-                onChange={(e) => setDirection(e.target.value as TranslationDirection)}
-              />
-              <span>Português → Inglês</span>
-            </label>
+          <label>Direção da Tradução (selecione uma ou mais):</label>
+          <div className="checkbox-group">
+            {SUPPORTED_PRACTICE_DIRECTIONS.map((dir) => {
+              const label = dir === 'en-to-pt' ? 'Inglês → Português' : dir === 'pt-to-en' ? 'Português → Inglês' : dir;
+              return (
+                <label key={dir}>
+                  <input
+                    type="checkbox"
+                    value={dir}
+                    checked={selectedDirections.includes(dir as any)}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      setSelectedDirections((prev) => {
+                        if (checked) return [...prev, dir as TranslationDirection];
+                        return prev.filter((d) => d !== dir);
+                      });
+                    }}
+                  />
+                  <span>{label}</span>
+                </label>
+              );
+            })}
           </div>
         </div>
 
@@ -548,18 +557,16 @@ Agora crie a frase usando as palavras: {words}`;
         <div className="config-section">
           <div className="config-section-header">
             <label>Vídeos (opcional - deixe vazio para usar todos):</label>
-            {mode === 'new-context' && (
-              <button 
-                onClick={() => {
-                  setShowConfigModal(true);
-                  loadAvailableAgents();
-                }} 
-                className="config-btn"
-                title="Configurar prompt e agente"
-              >
-                ⚙️ Configurações
-              </button>
-            )}
+            <button 
+              onClick={() => {
+                setShowConfigModal(true);
+                loadAvailableAgents();
+              }} 
+              className="config-btn"
+              title="Configurar prompt e agente"
+            >
+              ⚙️ Configurações
+            </button>
           </div>
           <div className="video-selector">
             {availableVideos.length > 0 && (
@@ -622,7 +629,7 @@ Agora crie a frase usando as palavras: {words}`;
       </div>
 
       <div className="practice-exercise">
-        {mode === 'words-only' && customWords.length > 0 && !loading && (
+        {mode === 'new-context' && customWords.length > 0 && !loading && (
           <div className="exercise-content">
             <div className="phrase-display">
               <div className="phrase-label">
@@ -691,35 +698,53 @@ Agora crie a frase usando as palavras: {words}`;
           </div>
         )}
 
-        {mode === 'words-only' && customWords.length === 0 && !loading && (
+        {mode === 'new-context' && customWords.length === 0 && !loading && (
           <div className="exercise-placeholder">
             <p>Adicione palavras acima para começar a praticar!</p>
           </div>
         )}
 
-        {!currentPhrase && !loading && mode !== 'words-only' && (
+        {!currentPhrase && !loading && (
           <div className="exercise-placeholder">
             <p>Clique em "Iniciar" para começar a praticar!</p>
-            <button onClick={loadNextPhrase} className="start-btn">
-              Iniciar
-            </button>
+            {!sessionRunning ? (
+              <button onClick={startSession} className="start-btn">
+                Iniciar
+              </button>
+            ) : (
+              <button onClick={stopSession} className="start-btn">
+                Encerrar Sessão
+              </button>
+            )}
           </div>
         )}
 
-        {loading && mode !== 'words-only' && (
+        {loading && (
           <div className="exercise-loading">
             <p>Carregando frase...</p>
           </div>
         )}
 
-        {currentPhrase && !loading && mode !== 'words-only' && (
+        {currentPhrase && !loading && (
           <div className="exercise-content">
             <div className="phrase-display">
-              <div className="phrase-label">
-                {direction === 'en-to-pt' ? 'Traduza do Inglês:' : 'Traduza do Português:'}
+              <div className="category-label" style={{ marginBottom: '8px', fontSize: '0.95rem', color: 'var(--text-secondary)' }}>
+                {currentCategory ? `Modo: ${currentCategory.mode === 'music-context' ? 'Frases das Músicas' : 'Frases com Novo Contexto'} — Direção: ${currentCategory.direction === 'en-to-pt' ? 'Inglês → Português' : 'Português → Inglês'}` : (direction === 'en-to-pt' ? 'Traduza do Inglês:' : 'Traduza do Português:')}
               </div>
               <div className="phrase-text">
-                {direction === 'en-to-pt' ? currentPhrase.original : currentPhrase.translated}
+                {/* Mostrar apenas o texto de origem para o exercício; revelar tradução apenas após resposta */}
+                <div style={{ marginBottom: '8px' }}>
+                  <div style={{ fontSize: '1.25rem', marginTop: '6px' }}>
+                    {currentPhrase.original}
+                  </div>
+                </div>
+
+                {showAnswer && (
+                  <div style={{ marginTop: '8px', color: 'var(--text-secondary)' }}>
+                    <strong>Tradução:</strong>
+                    <div style={{ fontStyle: 'italic', marginTop: '6px' }}>{currentPhrase.translated}</div>
+                  </div>
+                )}
               </div>
               {currentPhrase.video_title && (
                 <div className="phrase-source">Música: {currentPhrase.video_title}</div>

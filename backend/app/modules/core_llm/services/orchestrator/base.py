@@ -7,6 +7,22 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+class LLMError(Exception):
+    """Erro base para serviços LLM"""
+    def __init__(self, message: str, service: str = None, model: str = None):
+        self.message = message
+        self.service = service
+        self.model = model
+        super().__init__(self.message)
+
+class InsufficientBalanceError(LLMError):
+    """Erro 402 - Saldo insuficiente no provedor"""
+    pass
+
+class QuotaExceededError(LLMError):
+    """Erro 429 - Limite de taxa ou cota atingido"""
+    pass
+
 class LLMService(ABC):
     """Interface base para serviços LLM"""
     

@@ -31,6 +31,21 @@ Localização: `app/modules/workflow_engine/`
 - `services/chat_workflow.py`: O fluxo principal da aplicação (Mensagem -> Processamento -> Resposta).
 - `services/engine.py`: Registro centralizado de workflows.
 
+### 5. `agents_factory` (Novo)
+Localização: `app/modules/agents_factory/`
+- `models/models.py`: Definição de `Agent` (Especialista), `AgentSession`, `AgentChatMessage` e `AgentDocument`.
+- `services/agent_chat_service.py`: Orquestrador de interações e injeção de contexto.
+- `services/rag_service.py`: Gestão de ChromaDB, indexação de histórico e documentos.
+- `services/memory_service.py`: Geração de resumos e gestão de memória.
+- `api/routes.py`: Endpoints para criação de agentes, sessões e upload de conhecimento.
+
+### 6. `2-mcp_factory` (Novo Módulo de Ação)
+Localização: `app/modules/mcp_factory/` (Backend) e `src/components/MCPFactory/` (Frontend)
+- `services/runtime_manager.py`: Executor de ferramentas via `uv`/`npx`.
+- `services/assistant_service.py`: Agente Assistente para auxílio na criação.
+- `api/routes.py`: Endpoints para catálogo e configuração de ferramentas.
+- `MCPFactory.tsx`: Interface visual com diagramas e chat copiloto.
+
 ---
 
 ## 🛠️ Pontos de Entrada Comuns
