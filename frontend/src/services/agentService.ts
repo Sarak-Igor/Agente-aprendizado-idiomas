@@ -62,6 +62,12 @@ export const agentApi = {
         const response = await api.post<AgentResponse>('/agents/', agentData);
         return response.data;
     },
+    /**
+     * Deleta um agente pelo ID
+     */
+    deleteAgent: async (agentId: string): Promise<void> => {
+        await api.delete(`/agents/${agentId}`);
+    },
 
     /**
      * Obtém detalhes da sessão, incluindo resumo e prompt do agente

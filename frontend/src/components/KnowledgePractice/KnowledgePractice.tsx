@@ -4,6 +4,8 @@ import { storage } from '../../services/storage';
 import './KnowledgePractice.css';
 import { SUPPORTED_PRACTICE_DIRECTIONS } from '../../config/languages';
 import { usePracticeOrchestrator } from '../../hooks/usePracticeOrchestrator';
+import ClozeExercise from '../ClozeExercise/ClozeExercise';
+import SentenceScramble from './SentenceScramble';
 
 interface PracticePhrase {
   id: string;
@@ -24,7 +26,7 @@ interface PracticeStats {
   skipped: number;
 }
 
-type PracticeMode = 'music-context' | 'new-context';
+type PracticeMode = 'music-context' | 'new-context' | 'cloze' | 'sentence-scramble';
 type TranslationDirection = 'en-to-pt' | 'pt-to-en';
 type Difficulty = 'easy' | 'medium' | 'hard';
 
@@ -38,6 +40,8 @@ export const KnowledgePractice = () => {
   const [currentCategory, setCurrentCategory] = useState<{ mode: string; direction: string } | null>(null);
   const [difficulty, setDifficulty] = useState<Difficulty>('medium');
   const [currentPhrase, setCurrentPhrase] = useState<PracticePhrase | null>(null);
+  const [currentCloze, setCurrentCloze] = useState<any | null>(null);
+  const [currentScramble, setCurrentScramble] = useState<any | null>(null);
   const [userAnswer, setUserAnswer] = useState('');
   const [showAnswer, setShowAnswer] = useState(false);
   const [isCorrect, setIsCorrect] = useState<boolean | null>(null);
@@ -198,6 +202,9 @@ Agora crie a frase usando as palavras: {words}`;
       const tgt = phrase.target_language || (direction === 'en-to-pt' ? 'pt' : 'en');
       const effectiveDirection = src === 'en' && tgt === 'pt' ? 'en-to-pt' : 'pt-to-en';
       setCurrentCategory({ mode: mode, direction: effectiveDirection });
+      // clear other exercise states
+      setCurrentCloze(null);
+      setCurrentScramble(null);
       setCurrentPhrase(phrase);
       // Salva frase não respondida
       storage.saveCurrentPhrase(phrase, '');
@@ -205,6 +212,51 @@ Agora crie a frase usando as palavras: {words}`;
       alert(error.response?.data?.detail || 'Erro ao carregar frase. Verifique se há vídeos traduzidos.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadCloze = async (gaps = 1) => {
+    setLoading(true);
+    setCurrentCloze(null);
+    // Clear any phrase to avoid mixing translations with cloze
+    setCurrentPhrase(null);
+    // clear other exercise states
+    setCurrentScramble(null);
+    try {
+      const resp = await videoApi.getCloze({
+        mode: mode,
+        direction: direction,
+        difficulty,
+        gaps,
+        video_ids: selectedVideos.length > 0 ? selectedVideos : undefined,
+      });
+      setCurrentCloze(resp);
+      setShowAnswer(false);
+      setUserAnswer('');
+      setIsCorrect(null);
+    } catch (error: any) {
+      alert(error.response?.data?.detail || 'Erro ao carregar exercício Cloze');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCheckCloze = async (answers: string[]) => {
+    if (!currentCloze) return { is_correct: false };
+    try {
+      const resp = await videoApi.checkCloze({
+        phrase_id: currentCloze.id,
+        answers,
+        expected_answers: currentCloze.answers,
+        direction,
+      });
+      setShowAnswer(true);
+      setIsCorrect(resp.is_correct);
+      // after checking, keep currentCloze so translation can be shown if needed
+      return resp;
+    } catch (err) {
+      alert('Erro ao verificar cloze');
+      return { is_correct: false };
     }
   };
 
@@ -229,7 +281,18 @@ Agora crie a frase usando as palavras: {words}`;
       const tgt = item.payload.target_language || item.direction?.split('-')[1] || 'pt';
       const effectiveDirection = src === 'en' && tgt === 'pt' ? 'en-to-pt' : 'pt-to-en';
       setCurrentCategory({ mode: item.mode, direction: effectiveDirection });
-      setCurrentPhrase(item.payload);
+      // clear previous exercise states
+      setCurrentCloze(null);
+      setCurrentPhrase(null);
+      setCurrentScramble(null);
+      // set according to mode
+      if (item.mode === 'cloze') {
+        setCurrentCloze(item.payload);
+      } else if (item.mode === 'sentence-scramble') {
+        setCurrentScramble(item.payload);
+      } else {
+        setCurrentPhrase(item.payload);
+      }
       setShowAnswer(false);
       setUserAnswer('');
       setIsCorrect(null);
@@ -242,6 +305,10 @@ Agora crie a frase usando as palavras: {words}`;
     orchestrator.stop();
     setSessionRunning(false);
     setCurrentCategory(null);
+    // clear any exercise states
+    setCurrentCloze(null);
+    setCurrentPhrase(null);
+    setCurrentScramble(null);
   };
 
   const nextSessionItem = async () => {
@@ -257,7 +324,17 @@ Agora crie a frase usando as palavras: {words}`;
         const tgt = item.payload.target_language || item.direction?.split('-')[1] || 'pt';
         const effectiveDirection = src === 'en' && tgt === 'pt' ? 'en-to-pt' : 'pt-to-en';
         setCurrentCategory({ mode: item.mode, direction: effectiveDirection });
-        setCurrentPhrase(item.payload);
+        // clear previous exercise states
+        setCurrentCloze(null);
+        setCurrentPhrase(null);
+        setCurrentScramble(null);
+        if (item.mode === 'cloze') {
+          setCurrentCloze(item.payload);
+        } else if (item.mode === 'sentence-scramble') {
+          setCurrentScramble(item.payload);
+        } else {
+          setCurrentPhrase(item.payload);
+        }
         setShowAnswer(false);
         setUserAnswer('');
         setIsCorrect(null);
@@ -276,7 +353,17 @@ Agora crie a frase usando as palavras: {words}`;
           const tgt = item.payload.target_language || item.direction?.split('-')[1] || 'pt';
           const effectiveDirection = src === 'en' && tgt === 'pt' ? 'en-to-pt' : 'pt-to-en';
           setCurrentCategory({ mode: item.mode, direction: effectiveDirection });
-          setCurrentPhrase(item.payload);
+          // clear previous exercise states
+          setCurrentCloze(null);
+          setCurrentPhrase(null);
+          setCurrentScramble(null);
+          if (item.mode === 'cloze') {
+            setCurrentCloze(item.payload);
+          } else if (item.mode === 'sentence-scramble') {
+            setCurrentScramble(item.payload);
+          } else {
+            setCurrentPhrase(item.payload);
+          }
           setShowAnswer(false);
           setUserAnswer('');
           setIsCorrect(null);
@@ -510,6 +597,36 @@ Agora crie a frase usando as palavras: {words}`;
               />
               <span>Frases com Novo Contexto</span>
             </label>
+            <label>
+              <input
+                type="checkbox"
+                value="cloze"
+                checked={selectedModes.includes('cloze' as any)}
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  setSelectedModes((prev) => {
+                    if (checked) return [...prev, 'cloze' as any];
+                    return prev.filter((p) => p !== 'cloze');
+                  });
+                }}
+              />
+              <span>Cloze (preencher lacunas)</span>
+            </label>
+            <label>
+              <input
+                type="checkbox"
+                value="sentence-scramble"
+                checked={selectedModes.includes('sentence-scramble' as any)}
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  setSelectedModes((prev) => {
+                    if (checked) return [...prev, 'sentence-scramble' as any];
+                    return prev.filter((p) => p !== 'sentence-scramble');
+                  });
+                }}
+              />
+              <span>Sentence Scramble</span>
+            </label>
           </div>
         </div>
         {/* Palavra config removed */}
@@ -519,10 +636,10 @@ Agora crie a frase usando as palavras: {words}`;
         <div className="config-section">
           <label>Direção da Tradução (selecione uma ou mais):</label>
           <div className="checkbox-group">
-            {SUPPORTED_PRACTICE_DIRECTIONS.map((dir) => {
+            {SUPPORTED_PRACTICE_DIRECTIONS.map((dir, dirIdx) => {
               const label = dir === 'en-to-pt' ? 'Inglês → Português' : dir === 'pt-to-en' ? 'Português → Inglês' : dir;
               return (
-                <label key={dir}>
+                <label key={`${dir}-${dirIdx}`}>
                   <input
                     type="checkbox"
                     value={dir}
@@ -553,6 +670,7 @@ Agora crie a frase usando as palavras: {words}`;
             <option value="hard">Difícil</option>
           </select>
         </div>
+        {/* Tipo de exercício removido — agora usamos 'Modalidade' para selecionar os exercícios */}
 
         <div className="config-section">
           <div className="config-section-header">
@@ -579,8 +697,8 @@ Agora crie a frase usando as palavras: {words}`;
                 <span><strong>Selecionar todos</strong></span>
               </label>
             )}
-            {availableVideos.map((video) => (
-              <label key={video.video_id} className="video-checkbox">
+            {availableVideos.map((video, vIdx) => (
+              <label key={`${video.video_id}-${vIdx}`} className="video-checkbox">
                 <input
                   type="checkbox"
                   checked={selectedVideos.includes(video.video_id)}
@@ -704,7 +822,43 @@ Agora crie a frase usando as palavras: {words}`;
           </div>
         )}
 
-        {!currentPhrase && !loading && (
+        {/* Sessão — apenas Sentence Scramble, Cloze e Frase */}
+        {currentScramble && !loading ? (
+          <div style={{ marginTop: '12px' }}>
+            <SentenceScramble
+              direction={direction}
+              difficulty={difficulty}
+              video_ids={selectedVideos.length > 0 ? selectedVideos : undefined}
+              initialItem={currentScramble}
+              onAnswered={(correct) => updateStats(!!correct)}
+              onNext={() => { if (sessionRunning) nextSessionItem(); else loadNextPhrase(); }}
+            />
+          </div>
+        ) : currentCloze && !loading ? (
+          <div style={{ marginTop: '12px' }}>
+            <ClozeExercise cloze={currentCloze} onCheck={handleCheckCloze} />
+            {showAnswer && isCorrect !== null && (
+              <div style={{ marginTop: '12px' }}>
+                {isCorrect ? (
+                  <div className="correct">✅ Cloze correto</div>
+                ) : (
+                  <div className="incorrect">
+                    <div>❌ Cloze incorreto</div>
+                    {currentCloze && (
+                      <div style={{ marginTop: '8px' }}>
+                        <strong>Resposta correta:</strong>
+                        <div style={{ marginTop: '6px', fontStyle: 'italic' }}>
+                          {currentCloze.translated || currentCloze.original}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+                <button onClick={() => { setCurrentCloze(null); setShowAnswer(false); setIsCorrect(null); loadNextPhrase(); }} className="next-btn" style={{ marginTop: '8px' }}>Próxima</button>
+              </div>
+            )}
+          </div>
+        ) : (!currentPhrase && !loading && (
           <div className="exercise-placeholder">
             <p>Clique em "Iniciar" para começar a praticar!</p>
             {!sessionRunning ? (
@@ -717,7 +871,7 @@ Agora crie a frase usando as palavras: {words}`;
               </button>
             )}
           </div>
-        )}
+        ))}
 
         {loading && (
           <div className="exercise-loading">
@@ -739,10 +893,10 @@ Agora crie a frase usando as palavras: {words}`;
                   </div>
                 </div>
 
-                {showAnswer && (
+                {showAnswer && currentCloze && (
                   <div style={{ marginTop: '8px', color: 'var(--text-secondary)' }}>
                     <strong>Tradução:</strong>
-                    <div style={{ fontStyle: 'italic', marginTop: '6px' }}>{currentPhrase.translated}</div>
+                    <div style={{ fontStyle: 'italic', marginTop: '6px' }}>{currentCloze.answers ? currentCloze.answers.join(' / ') : currentPhrase?.translated}</div>
                   </div>
                 )}
               </div>
@@ -856,8 +1010,8 @@ Agora crie a frase usando as palavras: {words}`;
                   {availableAgents && availableAgents.length > 0 ? (
                     availableAgents
                       .filter(a => a.available !== false)
-                      .map((agent) => (
-                        <option key={`${agent.service}:${agent.model}`} value={`${agent.service}:${agent.model}`}>
+                      .map((agent, agentIdx) => (
+                        <option key={`${agent.service}:${agent.model}-${agentIdx}`} value={`${agent.service}:${agent.model}`}>
                           {agent.display_name}
                         </option>
                       ))

@@ -52,6 +52,20 @@ const AgentsManager: React.FC = () => {
         }
     };
 
+    const handleDeleteAgent = async (agentId: string) => {
+        const confirm = window.confirm('Tem certeza que deseja remover este especialista? Esta ação removerá todas as sessões e dados associados.');
+        if (!confirm) return;
+        try {
+            await agentApi.deleteAgent(agentId);
+            // Recarrega lista após exclusão
+            fetchAgents();
+        } catch (error) {
+            console.error('Erro ao deletar agente:', error);
+            const msg = (error as any)?.response?.data?.detail || (error as any)?.message || 'Erro ao deletar especialista. Verifique o console para mais detalhes.';
+            alert(msg);
+        }
+    };
+
     return (
         <div className="agents-container">
             <div className="agents-header">
@@ -75,6 +89,9 @@ const AgentsManager: React.FC = () => {
                                 <div className="agent-actions">
                                     <button className="btn-chat" onClick={() => startSession(agent.id)}>
                                         Iniciar Chat
+                                    </button>
+                                    <button className="btn-delete" onClick={() => handleDeleteAgent(agent.id)} style={{ marginLeft: '8px' }}>
+                                        Remover
                                     </button>
                                 </div>
                             </div>

@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { videoApi } from '../services/api';
 
-type Mode = 'music-context' | 'new-context';
+type Mode = 'music-context' | 'new-context' | 'cloze' | 'sentence-scramble';
 type Direction = 'en-to-pt' | 'pt-to-en' | 'all';
 
 interface OrchestratorItem {
@@ -43,6 +43,25 @@ export function usePracticeOrchestrator() {
         video_ids: video_ids && video_ids.length > 0 ? video_ids : undefined,
       });
       console.debug('Orchestrator: fetched music-context item', { combo, data });
+      return { mode: combo.mode, direction: combo.direction, payload: data };
+    } else if (combo.mode === 'cloze') {
+      // request a cloze exercise (use gaps default = 1)
+      const data = await videoApi.getCloze({
+        mode: 'music-context',
+        direction: combo.direction,
+        difficulty,
+        gaps: 1,
+        video_ids: video_ids && video_ids.length > 0 ? video_ids : undefined,
+      });
+      console.debug('Orchestrator: fetched cloze item', { combo, data });
+      return { mode: combo.mode, direction: combo.direction, payload: data };
+    } else if (combo.mode === 'sentence-scramble') {
+      const data = await videoApi.getScramblePhrase({
+        direction: combo.direction,
+        difficulty,
+        video_ids: video_ids && video_ids.length > 0 ? video_ids : undefined,
+      });
+      console.debug('Orchestrator: fetched sentence-scramble item', { combo, data });
       return { mode: combo.mode, direction: combo.direction, payload: data };
     } else {
       const data = await videoApi.generatePracticePhrase({

@@ -80,6 +80,33 @@ def create_agent(agent_in: schemas.AgentCreate, db: Session = Depends(get_db)):
 def list_agents(db: Session = Depends(get_db)):
     return db.query(Agent).all()
 
+
+@router.delete("/{agent_id}")
+def delete_agent(agent_id: UUID, db: Session = Depends(get_db)):
+    """
+    Remove um agente e seus dados associados (sessions, mensagens, documentos e storage).
+    """
+    agent = db.query(Agent).filter(Agent.id == agent_id).first()
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agente não encontrado")
+
+    try:
+        # Remove dados persistidos em storage (diretórios, blueprints, etc.)
+        try:
+            storage_service.delete_agent(str(agent.id))
+        except Exception as e:
+            # Logamos mas não impedimos a remoção no banco caso o storage falhe
+            logger.warning(f"Falha ao remover storage do agente {agent.id}: {e}")
+
+        # Remove o registro do agente (cascade cuidará das sessions e mensagens)
+        db.delete(agent)
+        db.commit()
+        return {"status": "deleted", "agent_id": str(agent.id)}
+    except Exception as e:
+        logger.error(f"Erro ao deletar agente {agent_id}: {e}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Erro ao deletar agente: {str(e)}")
+
 @router.post("/{agent_id}/blueprint")
 def save_agent_blueprint(agent_id: UUID, blueprint: schemas.Blueprint, db: Session = Depends(get_db)):
     """Salva a definição do fluxo (blueprint) no storage do agente."""

@@ -59,6 +59,13 @@ class AgentSession(Base):
     agent = relationship("Agent", back_populates="sessions")
     user = relationship("User", backref="agent_sessions")
     messages = relationship("AgentChatMessage", back_populates="session", cascade="all, delete-orphan", order_by="AgentChatMessage.created_at")
+    # Documentos associados à sessão (RAG). Garantir remoção em cascata via ORM/DB.
+    documents = relationship(
+        "AgentDocument",
+        back_populates="session",
+        cascade="all, delete-orphan",
+        passive_deletes=True
+    )
 
 
 class AgentChatMessage(Base):
@@ -99,4 +106,4 @@ class AgentDocument(Base):
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
-    session = relationship("AgentSession", backref="documents")
+    session = relationship("AgentSession", back_populates="documents")

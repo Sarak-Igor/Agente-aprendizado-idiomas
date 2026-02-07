@@ -529,6 +529,17 @@
   line-height: 1.6;
 }
 
+/* Translation card used in SentenceScramble — respects theme variables */
+.translation-card {
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
 .next-btn {
   margin-top: 16px;
   padding: 12px 24px;

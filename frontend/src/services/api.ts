@@ -171,6 +171,26 @@ export const videoApi = {
     const response = await api.post('/api/practice/words', params);
     return response.data;
   },
+  getCloze: async (params: {
+    mode: 'music-context' | 'new-context';
+    direction: string;
+    difficulty: string;
+    gaps?: number;
+    video_ids?: string[];
+  }): Promise<any> => {
+    const response = await api.post('/api/practice/cloze', params);
+    return response.data;
+  },
+
+  checkCloze: async (params: {
+    phrase_id: string;
+    answers: string[];
+    expected_answers?: string[];
+    direction: string;
+  }): Promise<{ is_correct: boolean; details?: any }> => {
+    const response = await api.post('/api/practice/check-cloze', params);
+    return response.data;
+  },
 
   generatePracticePhrase: async (params: {
     direction: string;
@@ -187,6 +207,22 @@ export const videoApi = {
     const response = await api.post('/api/practice/phrase/new-context', params);
     return response.data;
   },
+  getScramblePhrase: async (params: {
+    direction: string;
+    difficulty: string;
+    video_ids?: string[];
+  }): Promise<any> => {
+    const response = await api.post('/api/practice/phrase/scramble', params);
+    return response.data;
+  },
+  checkScramble: async (params: {
+    phrase_id: string;
+    sequence: string[];
+  }) : Promise<{ is_correct: boolean; correct_answer?: string }> => {
+    const response = await api.post('/api/practice/check-scramble', params);
+    return response.data;
+  },
+  // word/example endpoint removed — vocab cards not used
 
   getAvailableAgents: async (apiKeys?: { gemini?: string; openrouter?: string; groq?: string; together?: string }): Promise<{ agents: Array<{ service: string; model: string; display_name: string; available: boolean }> }> => {
     const response = await api.post('/api/practice/available-agents', { api_keys: apiKeys || {} });

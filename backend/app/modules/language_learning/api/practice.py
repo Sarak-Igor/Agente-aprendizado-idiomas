@@ -16,9 +16,16 @@ import random
 import re
 import logging
 import os
+from app.modules.language_learning.api import cloze as cloze_module  # ensure module loaded
 
 router = APIRouter(prefix="/api/practice", tags=["practice"])
 logger = logging.getLogger(__name__)
+
+# include cloze routes under this router (do after router/logger defined)
+try:
+    router.include_router(cloze_module.router)
+except Exception as e:
+    logger.debug(f"Erro ao incluir cloze router: {e}", exc_info=True)
 
 
 def get_gemini_service(user_id: UUID, db: Session, validate_models: bool = True) -> Optional[GeminiService]:
@@ -963,6 +970,134 @@ async def get_practice_words(
         logger.exception("Erro ao extrair palavras")
         raise HTTPException(status_code=500, detail=f"Erro ao extrair palavras: {str(e)}")
 
+
+# Listening MC endpoints removed — feature deprecated (only Sentence Scramble kept)
+
+
+@router.post("/phrase/scramble")
+async def get_scramble_phrase(request: dict, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """
+    Retorna frase com tokens embaralhados.
+    Body: direction, difficulty, video_ids
+    """
+    try:
+        direction = request.get('direction', 'en-to-pt')
+        difficulty = request.get('difficulty', 'medium')
+        video_ids = request.get('video_ids')
+
+        query = db.query(Translation).join(Video).filter(
+            Translation.user_id == current_user.id,
+            Video.user_id == current_user.id
+        )
+        if video_ids:
+            video_ids_list = [UUID(vid) for vid in video_ids]
+            query = query.filter(Video.id.in_(video_ids_list))
+        # Filtra por direção para garantir que 'original' / 'translated' façam sentido
+        if direction == "en-to-pt":
+            query = query.filter(Translation.source_language == "en", Translation.target_language == "pt")
+        else:
+            query = query.filter(Translation.source_language == "pt", Translation.target_language == "en")
+
+        translations = query.all()
+        if not translations:
+            raise HTTPException(status_code=404, detail="Nenhuma tradução disponível")
+
+        translation = random.choice(translations)
+        video = db.query(Video).filter(Video.id == translation.video_id).first()
+        segments = translation.segments or []
+        if not segments:
+            raise HTTPException(status_code=404, detail="Sem segmentos na tradução")
+        segment = random.choice(segments)
+        # Escolhe o texto 'original' exibido ao usuário e a tradução de acordo com a direção solicitada
+        if direction == "en-to-pt":
+            original_text = segment.get('original', '')
+            translated_text = segment.get('translated', '')
+        else:
+            # quando a direção for pt->en, mostra o texto traduzido como 'original' para ordenar,
+            # e guarda a outra forma como 'translated'
+            original_text = segment.get('translated', '') or ''
+            translated_text = segment.get('original', '') or ''
+
+        # tokenize and shuffle — keep only word tokens (remove punctuation/special chars)
+        # Use a unicode-aware pattern that includes accented letters and apostrophes
+        tokens = re.findall(r"[A-Za-zÀ-ÿ']+", original_text, flags=re.U)
+        if len(tokens) <= 1:
+            shuffled = tokens
+        else:
+            shuffled = tokens.copy()
+            random.shuffle(shuffled)
+
+        return {
+            "id": f"{translation.id}-{segment.get('start', 0)}",
+            "original": original_text,
+            "shuffled": shuffled,
+            "translated": translated_text,
+            "source_language": translation.source_language,
+            "target_language": translation.target_language,
+            "video_title": video.title if video else None,
+            "video_id": str(video.id) if video else None,
+            "start": segment.get('start', 0)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Erro ao gerar scramble")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/check-scramble")
+async def check_scramble(request: dict, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """
+    Verifica sequência enviada pelo usuário para scramble.
+    Body: phrase_id, sequence: list[str]
+    """
+    try:
+        phrase_id = request.get('phrase_id')
+        sequence = request.get('sequence', [])
+        if not phrase_id:
+            raise HTTPException(status_code=400, detail="phrase_id required")
+        if not isinstance(sequence, list):
+            raise HTTPException(status_code=400, detail="sequence must be a list")
+
+        if '-' not in phrase_id:
+            raise HTTPException(status_code=400, detail="Invalid phrase_id format")
+        translation_id, segment_start = phrase_id.rsplit('-', 1)
+        try:
+            translation_uuid = UUID(translation_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid translation id")
+
+        translation = db.query(Translation).filter(
+            Translation.id == translation_uuid,
+            Translation.user_id == current_user.id
+        ).first()
+        if not translation:
+            raise HTTPException(status_code=404, detail="Frase não encontrada")
+
+        correct_answer = None
+        for seg in translation.segments or []:
+            seg_start = seg.get('start', 0)
+            try:
+                if abs(float(seg_start) - float(segment_start)) < 0.1:
+                    correct_answer = seg.get('original', '')
+                    break
+            except Exception:
+                continue
+
+        if correct_answer is None:
+            raise HTTPException(status_code=404, detail="Segmento não encontrado")
+
+        user_text = ' '.join(sequence)
+        ok = check_answer_similarity(user_text, correct_answer)
+        return {"is_correct": ok, "correct_answer": correct_answer}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Erro ao verificar scramble")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Word example endpoint removed — Vocabulário cards feature deprecated
 
 def generate_phrase_with_llm(
     llm_service: LLMService,
