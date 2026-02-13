@@ -1,7 +1,0 @@
-# Optional ML dependencies (install only if ML_ENABLED=true)
-# These are large packages and should be installed separately.
-pandas==2.3.2
-numpy==2.3.2
-scikit-learn==1.7.1
-joblib==1.5.2
-
