@@ -15,8 +15,7 @@ from app.services.auth_service import (
     get_user_by_id,
     ACCESS_TOKEN_EXPIRE_MINUTES
 )
-from app.models.database import User, ApiKey
-from app.modules.user_intelligence.models.models import UserProfile
+from app.models.database import User, ApiKey, UserProfile
 import logging
 
 logger = logging.getLogger(__name__)
@@ -68,7 +67,8 @@ async def register(user_data: UserRegister, db: Session = Depends(get_db)):
             email=user_data.email,
             username=user_data.username,
             native_language=user_data.native_language,
-            learning_language=user_data.learning_language
+            learning_language=user_data.learning_language,
+            password=user_data.password
         )
         
         # Cria token de acesso
@@ -109,8 +109,8 @@ async def login(
     user_data: UserLogin,
     db: Session = Depends(get_db)
 ):
-    """Login do usuário (apenas por email, sem senha)"""
-    user = authenticate_user(db, user_data.email)
+    """Login do usuário com email e senha (MVP, sem criptografia)"""
+    user = authenticate_user(db, user_data.email, user_data.password)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

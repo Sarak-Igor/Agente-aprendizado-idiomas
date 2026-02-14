@@ -380,12 +380,14 @@ export const usageApi = {
 export interface RegisterRequest {
   email: string;
   username: string;
+  password?: string;
   native_language?: string;
   learning_language?: string;
 }
 
 export interface LoginRequest {
   email: string;
+  password?: string;
 }
 
 export interface TokenResponse {

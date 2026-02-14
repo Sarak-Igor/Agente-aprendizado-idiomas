@@ -45,7 +45,7 @@ class Translation(Base):
     )
 
 
-from app.modules.core_llm.models.models import ApiKey, TokenUsage
+from app.modules.agents.core_llm.models.models import ApiKey, TokenUsage
 
 
 class Job(Base):
@@ -69,7 +69,25 @@ class Job(Base):
     user = relationship("User", backref="jobs")
 
 
-# TokenUsage migrado
+class UserProfile(Base):
+    __tablename__ = "user_profiles"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True)
+    native_language = Column(String(10), default="pt")
+    learning_language = Column(String(10), default="en")
+    proficiency_level = Column(String(20), default="beginner")
+    
+    # Estatísticas e preferências
+    total_chat_messages = Column(Integer, default=0)
+    total_practice_sessions = Column(Integer, default=0)
+    average_response_time = Column(Float, default=0.0)
+    learning_context = Column(Text, nullable=True)
+    preferred_learning_style = Column(String(50), nullable=True)
+    preferred_model = Column(String(100), nullable=True)
+    model_preferences = Column(JSONB, nullable=True)
+    
+    user = relationship("User", back_populates="profile")
 
 
 class User(Base):
@@ -78,16 +96,16 @@ class User(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     email = Column(String(255), unique=True, nullable=False, index=True)
     username = Column(String(100), unique=True, nullable=False, index=True)
+    password = Column(String(255), nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
     profile = relationship("UserProfile", back_populates="user", uselist=False, cascade="all, delete-orphan")
-    chat_sessions = relationship("ChatSession", back_populates="user", cascade="all, delete-orphan")
-    # Relações reversas definidas nos outros modelos (videos, translations, api_keys, jobs, token_usage)
+    # chat_sessions removido
+    # ...
 
 
-from app.modules.user_intelligence.models.models import UserProfile, ChatSession, ChatMessage
-from app.modules.core_llm.models.models import ModelCatalog, ModelProviderMapping
-from app.modules.agents_factory.models.models import Agent, AgentSession, AgentChatMessage, AgentDocument
-from app.modules.mcp_factory.models.models import MCPTool, AgentToolLink
+from app.modules.agents.core_llm.models.models import ModelCatalog, ModelProviderMapping
+from app.modules.agents.factory.models.models import Agent, AgentSession, AgentChatMessage, AgentDocument
+# Chat e MCP models removidos

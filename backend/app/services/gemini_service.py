@@ -1,13 +1,15 @@
 from google import genai
 from typing import List, Optional, Callable
 from app.schemas.schemas import SubtitleSegment, TranslationSegment
-from app.modules.core_llm.services.orchestrator.router import ModelRouter
-from app.modules.core_llm.services.usage.token_usage_service import TokenUsageService
+from app.modules.agents.core_llm.services.orchestrator.router import ModelRouter
+from app.modules.agents.core_llm.services.usage.token_usage_service import TokenUsageService
 from sqlalchemy.orm import Session
 import time
 import re
 import json
 import logging
+import hashlib
+from app.services.cache_service import cache_service
 
 logger = logging.getLogger(__name__)
 
@@ -259,8 +261,15 @@ class GeminiService:
         source_language: str = "auto"
     ) -> str:
         """
-        Traduz texto usando roteamento inteligente de modelos
+        Traduz texto usando roteamento inteligente de modelos.
+        Usa cache para evitar re-tradução de textos idênticos.
         """
+        # Verifica cache primeiro
+        cache_key = f"trans_{hashlib.md5(text.encode() + target_language.encode()).hexdigest()}"
+        cached_trans = cache_service.get(cache_key)
+        if cached_trans:
+            return cached_trans
+
         language_names = {
             'pt': 'português',
             'en': 'inglês',
@@ -400,6 +409,9 @@ Tradução:"""
                     if translated.startswith("'") and translated.endswith("'"):
                         translated = translated[1:-1]
                     
+                    if translated:
+                        # Salva no cache por 7 dias (traduções são estáveis)
+                        cache_service.set(cache_key, translated, ttl_seconds=604800)
                     return translated
                     
             except Exception as e:

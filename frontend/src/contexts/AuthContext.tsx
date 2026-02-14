@@ -12,8 +12,8 @@ interface AuthContextType {
   isAuthenticated: boolean;
   user: User | null;
   loading: boolean;
-  login: (email: string, rememberMe: boolean) => Promise<void>;
-  register: (email: string, username: string, nativeLanguage?: string, learningLanguage?: string) => Promise<void>;
+  login: (email: string, password: string, rememberMe: boolean) => Promise<void>;
+  register: (email: string, username: string, nativeLanguage?: string, learningLanguage?: string, password?: string) => Promise<void>;
   logout: () => void;
   checkAuth: () => Promise<void>;
 }
@@ -67,9 +67,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  const login = async (email: string, rememberMe: boolean) => {
+  const login = async (email: string, password: string, rememberMe: boolean) => {
     try {
-      const response: TokenResponse = await authApi.login({ email });
+      const response: TokenResponse = await authApi.login({ email, password });
       
       // Salva token e informações do usuário
       if (rememberMe) {
@@ -99,12 +99,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     email: string,
     username: string,
     nativeLanguage: string = 'pt',
-    learningLanguage: string = 'en'
+    learningLanguage: string = 'en',
+    password?: string
   ) => {
     try {
       const response: TokenResponse = await authApi.register({
         email,
         username,
+        password,
         native_language: nativeLanguage,
         learning_language: learningLanguage,
       });

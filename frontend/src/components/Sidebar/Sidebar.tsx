@@ -14,13 +14,11 @@ export const Sidebar = ({ activeTab, onTabChange }: SidebarProps) => {
   const navigate = useNavigate();
 
   const tabs = [
-    { id: 'translate', label: 'Traduzir', icon: '🎵' },
-    { id: 'videos', label: 'Meus Vídeos', icon: '📹' },
-    { id: 'practice', label: 'Treinar Inglês', icon: '📚' },
-    { id: 'chat', label: 'Chat', icon: '💬' },
-    { id: 'agents', label: 'Especialistas', icon: '🤖' },
-    { id: 'mcp-factory', label: 'Fábrica MCP', icon: '🏗️' },
-    { id: 'api-keys', label: 'Modelos LLM', icon: '🔑' },
+    { id: 'translate', label: 'Traduzir' },
+    { id: 'videos', label: 'Meus Vídeos' },
+    { id: 'practice', label: 'Treinar Inglês' },
+    { id: 'agents', label: 'Especialistas' },
+    { id: 'api-keys', label: 'Modelos LLM' },
   ];
 
   const handleLogout = () => {
@@ -31,7 +29,7 @@ export const Sidebar = ({ activeTab, onTabChange }: SidebarProps) => {
   return (
     <aside className="sidebar">
       <div className="sidebar-header">
-        <h2>🎵 Tradução de Vídeos</h2>
+        <h2>Tradução de Vídeos</h2>
       </div>
       <nav className="sidebar-nav">
         {tabs.map((tab) => (
@@ -39,8 +37,11 @@ export const Sidebar = ({ activeTab, onTabChange }: SidebarProps) => {
             key={tab.id}
             className={`sidebar-tab ${activeTab === tab.id ? 'active' : ''}`}
             onClick={() => onTabChange(tab.id)}
+            aria-pressed={activeTab === tab.id}
+            title={tab.label}
           >
-            <span className="tab-icon">{tab.icon}</span>
+            {/* optional icon slot kept empty for future SVGs */}
+            <span className="tab-icon" aria-hidden="true" />
             <span className="tab-label">{tab.label}</span>
           </button>
         ))}
@@ -49,7 +50,7 @@ export const Sidebar = ({ activeTab, onTabChange }: SidebarProps) => {
         {user && (
           <div className="sidebar-user">
             <div className="user-info">
-              <span className="user-icon">👤</span>
+              <span className="user-icon" aria-hidden="true" />
               <span className="user-name" title={user.email}>
                 {user.username}
               </span>
@@ -59,12 +60,16 @@ export const Sidebar = ({ activeTab, onTabChange }: SidebarProps) => {
               onClick={handleLogout}
               title="Sair / Trocar Usuário"
             >
-              🚪 Sair
+              Sair
             </button>
           </div>
         )}
-        <button className="theme-toggle" onClick={toggleTheme} title={theme === 'light' ? 'Ativar tema escuro' : 'Ativar tema claro'}>
-          {theme === 'light' ? '🌙' : '☀️'}
+        <button
+          className="theme-toggle"
+          onClick={toggleTheme}
+          title={theme === 'light' ? 'Ativar tema escuro' : 'Ativar tema claro'}
+          aria-pressed={theme !== 'light'}
+        >
           <span className="tab-label">Tema {theme === 'light' ? 'Escuro' : 'Claro'}</span>
         </button>
       </div>

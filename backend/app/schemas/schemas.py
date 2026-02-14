@@ -61,12 +61,14 @@ class VideoCheckResponse(BaseModel):
 class UserRegister(BaseModel):
     email: str = Field(..., min_length=5, max_length=255)
     username: str = Field(..., min_length=3, max_length=100)
+    password: str = Field(..., min_length=1, max_length=255)
     native_language: str = Field(default="pt", min_length=2, max_length=10)
     learning_language: str = Field(default="en", min_length=2, max_length=10)
 
 
 class UserLogin(BaseModel):
     email: str = Field(..., min_length=5, max_length=255)
+    password: str = Field(..., min_length=1, max_length=255)
 
 
 class Token(BaseModel):

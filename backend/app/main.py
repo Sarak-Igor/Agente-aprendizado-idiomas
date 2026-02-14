@@ -14,16 +14,20 @@ logger = logging.getLogger(__name__)
 from app.models.database import (
     Video, Translation, ApiKey, Job, TokenUsage, User, ModelCatalog, ModelProviderMapping
 )
-from app.modules.user_intelligence.models.models import UserProfile, ChatSession, ChatMessage
+
+# UserProfile, ChatSession, ChatMessage removidos
 
 # Importa rotas básicas e de domínio
-from app.api.routes import auth, chat, jobs
-from app.modules.language_learning.api import video, practice
+from app.api.routes import auth
+# chat routes removidas
+from app.modules.languages.media.api import jobs
+from app.modules.languages.media.api import video
+from app.modules.languages.practice.api import practice
 # Importa rotas modulares do core_llm
-from app.modules.core_llm.api import model_catalog_router, usage_router, api_keys_router
-from app.modules.user_intelligence.api import preferences_router
-from app.modules.agents_factory.api.routes import router as agents_router
-from app.modules.mcp_factory.api.routes import router as mcp_router
+from app.modules.agents.core_llm.api import model_catalog_router, usage_router, api_keys_router
+# preferences_router removido
+from app.modules.agents.factory.api.routes import router as agents_router
+# mcp_router removido
 
 Base.metadata.create_all(bind=engine)
 
@@ -39,7 +43,7 @@ async def periodic_catalog_sync():
         try:
             db = SessionLocal()
             try:
-                from app.modules.core_llm.services.catalog.catalog_service import ModelCatalogService
+                from app.modules.agents.core_llm.services.catalog.catalog_service import ModelCatalogService
                 catalog_service = ModelCatalogService()
                 stats = catalog_service.sync_catalog(db)
                 db.commit()
@@ -83,15 +87,15 @@ app.include_router(video.router)
 app.include_router(jobs.router)
 app.include_router(practice.router)
 app.include_router(auth.router)
-app.include_router(chat.router)
+# app.include_router(chat.router) removido
 
 # Rotas Modulares do core_llm
 app.include_router(api_keys_router)
 app.include_router(usage_router)
 app.include_router(model_catalog_router)
-app.include_router(preferences_router)
+# app.include_router(preferences_router) removido
 app.include_router(agents_router)
-app.include_router(mcp_router)
+# app.include_router(mcp_router) removido
 
 
 @app.get("/")

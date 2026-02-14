@@ -62,3 +62,28 @@ body > [data-fullscreen="true"] {
   visibility: visible !important;
   opacity: 1 !important;
 }
+
+/* Override theme variables to match proposal (placed at file end to take precedence) */
+:root {
+  --bg-primary: linear-gradient(180deg, #f5f7fa 0%, #e9eef6 100%);
+  --bg-secondary: #f5f7fa;
+  --bg-card: #ffffff;
+  --text-primary: #0b1220;
+  --text-secondary: #5b6b7a;
+  --text-muted: #8b96a3;
+  --border-color: #e6e9ef;
+  --shadow: rgba(2,6,23,0.06);
+  --shadow-lg: rgba(2,6,23,0.12);
+}
+
+[data-theme="dark"] {
+  --bg-primary: linear-gradient(180deg, #0f1720 0%, #071226 100%);
+  --bg-secondary: #0b1220;
+  --bg-card: #0f1728;
+  --text-primary: #e6eef8;
+  --text-secondary: #94a3b8;
+  --text-muted: #9aa6b5;
+  --border-color: #15202b;
+  --shadow: rgba(0, 0, 0, 0.4);
+  --shadow-lg: rgba(0, 0, 0, 0.65);
+}

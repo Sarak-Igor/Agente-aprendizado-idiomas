@@ -6,8 +6,7 @@ from typing import Optional
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from sqlalchemy.orm import Session
-from app.models.database import User
-from app.modules.user_intelligence.models.models import UserProfile
+from app.models.database import User, UserProfile
 from app.config import settings
 import secrets
 import logging
@@ -122,7 +121,8 @@ def create_user(
     email: str,
     username: str,
     native_language: str = "pt",
-    learning_language: str = "en"
+    learning_language: str = "en",
+    password: str = None
 ) -> User:
     """Cria novo usuário com perfil"""
     # Verifica se email ou username já existem
@@ -131,10 +131,11 @@ def create_user(
     if get_user_by_username(db, username):
         raise ValueError("Username já está em uso")
     
-    # Cria usuário (sem senha)
+    # Cria usuário (senha em texto simples - MVP)
     user = User(
         email=email,
-        username=username
+        username=username,
+        password=password
     )
     db.add(user)
     db.flush()  # Para obter o ID do usuário
@@ -154,11 +155,26 @@ def create_user(
     return user
 
 
-def authenticate_user(db: Session, email: str) -> Optional[User]:
-    """Autentica usuário apenas por email (sem senha)"""
+def authenticate_user(db: Session, email: str, password: Optional[str] = None) -> Optional[User]:
+    """
+    Autentica usuário por email e senha.
+    - Se `password` for fornecida, compara diretamente (texto simples - MVP).
+    - Se não for fornecida, retorna o usuário (compatibilidade com chamadas anteriores).
+    """
     user = get_user_by_email(db, email)
     if not user:
         return None
     if not user.is_active:
+        return None
+
+    if password is None:
+        # Compatibilidade: somente verificação por email
+        return user
+
+    # Verificação simples em texto plano (MVP)
+    stored = getattr(user, "password", None)
+    if stored is None:
+        return None
+    if stored != password:
         return None
     return user

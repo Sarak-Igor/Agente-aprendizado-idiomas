@@ -31,6 +31,15 @@ class Settings(BaseSettings):
     port: int = 8000
     frontend_url: str = "http://localhost:5173"
     
+    # LLM Settings
+    gemini_models: list[str] = [
+        'gemini-1.5-flash',
+        'gemini-1.5-pro',
+        'gemini-2.0-flash-exp',
+        'gemini-1.0-pro'
+    ]
+    default_practice_difficulty: str = "medium"
+    
     class Config:
         # Procura o .env na raiz do projeto
         env_file = str(Path(__file__).parent.parent.parent / ".env")
