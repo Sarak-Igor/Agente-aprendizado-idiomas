@@ -9,7 +9,7 @@ import { ApiKeyManager } from '../ApiKeyManager/ApiKeyManager';
 import { ApiUsage } from '../ApiUsage/ApiUsage';
 import { ModelPreferences } from '../ModelPreferences/ModelPreferences';
 import { KnowledgePractice } from '../KnowledgePractice/KnowledgePractice';
-// Chat removido
+import { Chat } from '../Chat/Chat';
 import { useJobPolling } from '../../hooks/useJobPolling';
 import { useVideoTranslation } from '../../hooks/useVideoTranslation';
 import { storage } from '../../services/storage';
@@ -17,7 +17,7 @@ import { videoApi } from '../../services/api';
 
 import AgentsManager from '../Agents/AgentsManager';
 import AgentChatView from '../Agents/AgentChatView';
-// MCPFactory removido
+import { MCPFactory } from '../MCPFactory/MCPFactory';
 
 import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 
@@ -38,7 +38,7 @@ export const MainApp = () => {
     const segments = location.pathname.split('/');
     // Formato esperado: /app/:tab/...
     const tabName = segments[2];
-    if (tabName && ['translate', 'videos', 'practice', 'agents', 'api-keys'].includes(tabName)) {
+    if (tabName && ['translate', 'videos', 'practice', 'chat', 'agents', 'mcp-factory', 'api-keys'].includes(tabName)) {
       setActiveTabState(tabName);
     }
   }, [location]);
@@ -237,10 +237,24 @@ export const MainApp = () => {
           </div>
         );
 
+      case 'chat':
+        return (
+          <div className="tab-content">
+            <Chat />
+          </div>
+        );
+
       case 'agents':
         return (
           <div className="tab-content">
             <AgentsManager />
+          </div>
+        );
+
+      case 'mcp-factory':
+        return (
+          <div className="tab-content">
+            <MCPFactory />
           </div>
         );
 

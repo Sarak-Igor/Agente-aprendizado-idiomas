@@ -14,6 +14,15 @@ import hashlib
 
 logger = logging.getLogger(__name__)
 
+# Patch para incompatibilidade entre passlib e bcrypt 4.0.0+
+try:
+    import bcrypt
+    if not hasattr(bcrypt, "__about__"):
+        bcrypt.__about__ = type('about', (), {'__version__': bcrypt.__version__})
+except ImportError:
+    pass
+
+
 # Configuração de hash de senha
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -39,40 +48,36 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     Verifica se a senha está correta.
     Usa pré-hash SHA-256 para evitar problemas com senhas > 72 bytes.
     """
-    # Faz pré-hash da senha antes de verificar
-    pre_hashed = _pre_hash_password(plain_password)
-    return pwd_context.verify(pre_hashed, hashed_password)
+    try:
+        pre_hashed = _pre_hash_password(plain_password)
+        # Verifica usando bcrypt direto se possível, fallback para pwd_context
+        # Transformamos strings em bytes para o bcrypt
+        return bcrypt.checkpw(
+            pre_hashed.encode('utf-8'), 
+            hashed_password.encode('utf-8')
+        )
+    except Exception as e:
+        logger.error(f"Erro ao verificar senha: {e}")
+        # Fallback para passlib se o hash estiver num formato que o bcrypt puro não entenda
+        return pwd_context.verify(_pre_hash_password(plain_password), hashed_password)
 
 
 def get_password_hash(password: str) -> str:
     """
-    Gera hash da senha usando bcrypt.
+    Gera hash da senha usando bcrypt direto.
     Usa pré-hash SHA-256 para evitar problemas com senhas > 72 bytes.
-    
-    Fluxo:
-    1. Senha original (qualquer tamanho) -> SHA-256 -> 64 caracteres hex (32 bytes)
-    2. Hash SHA-256 (32 bytes) -> bcrypt -> hash final
-    
-    Isso permite senhas de qualquer tamanho sem truncamento ou erros.
     """
     try:
-        # Faz pré-hash da senha antes de passar para bcrypt
         pre_hashed = _pre_hash_password(password)
-        logger.debug(f"Fazendo hash de senha (pré-hash SHA-256: {len(pre_hashed)} caracteres)")
-        return pwd_context.hash(pre_hashed)
+        # Gera sal e hash
+        salt = bcrypt.gensalt()
+        hashed = bcrypt.hashpw(pre_hashed.encode('utf-8'), salt)
+        return hashed.decode('utf-8')
     except Exception as e:
-        error_msg = str(e)
-        logger.error(f"Erro ao fazer hash da senha: {error_msg}")
-        # Se ainda houver erro de 72 bytes, significa que algo está errado
-        if "72 bytes" in error_msg.lower() or "truncate" in error_msg.lower():
-            logger.error("Erro de 72 bytes mesmo após pré-hash SHA-256 - isso não deveria acontecer!")
-            # Tenta uma abordagem alternativa: usar apenas os primeiros 72 bytes do pré-hash
-            # (embora isso não deveria ser necessário, pois SHA-256 sempre produz 64 caracteres)
-            pre_hashed = _pre_hash_password(password)
-            if len(pre_hashed.encode('utf-8')) > 72:
-                pre_hashed = pre_hashed[:72]
-            return pwd_context.hash(pre_hashed)
-        raise
+        logger.error(f"Erro ao fazer hash da senha com bcrypt direto: {e}")
+        # Se falhar, tenta via passlib (com o patch já aplicado no topo do arquivo)
+        pre_hashed = _pre_hash_password(password)
+        return pwd_context.hash(pre_hashed)
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
@@ -131,11 +136,11 @@ def create_user(
     if get_user_by_username(db, username):
         raise ValueError("Username já está em uso")
     
-    # Cria usuário (senha em texto simples - MVP)
+    # Cria usuário com senha hasheada
     user = User(
         email=email,
         username=username,
-        password=password
+        password=get_password_hash(password) if password else None
     )
     db.add(user)
     db.flush()  # Para obter o ID do usuário
@@ -171,10 +176,17 @@ def authenticate_user(db: Session, email: str, password: Optional[str] = None) -
         # Compatibilidade: somente verificação por email
         return user
 
-    # Verificação simples em texto plano (MVP)
     stored = getattr(user, "password", None)
     if stored is None:
         return None
-    if stored != password:
+    
+    # Verifica hash bcrypt (compatibilidade garantida via migration)
+    if not verify_password(password, stored):
+        # Fallback provisório: se a senha bater em texto simples, migramos na hora
+        if stored == password:
+            user.password = get_password_hash(password)
+            db.commit()
+            return user
         return None
+        
     return user

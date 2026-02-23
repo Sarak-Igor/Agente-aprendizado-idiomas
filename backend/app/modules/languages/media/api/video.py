@@ -34,10 +34,24 @@ def run_job_in_background(
     # Cria uma nova sessão para esta thread
     db = SessionLocal()
     try:
+        from app.modules.languages.media.services.job_manager import JobManager
+        from app.modules.languages.media.services.job_service import JobService
         job_service = JobService(db)
         job_service.process_translation_job(
             job_id, user_id, youtube_url, source_language, target_language, gemini_api_key
         )
+    except Exception as e:
+        import traceback
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Erro crítico não tratado na thread background: {e}")
+        logger.error(traceback.format_exc())
+        try:
+            from app.modules.languages.media.services.job_manager import JobManager
+            jm = JobManager(db)
+            jm.update_job(job_id, status="error", message="Falha crítica no background", error=str(e))
+        except Exception as inner_e:
+            logger.error(f"Erro ao salvar status de erro no banco: {inner_e}")
     finally:
         # Garante que a sessão seja fechada
         db.close()

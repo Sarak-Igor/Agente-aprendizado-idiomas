@@ -32,14 +32,15 @@ type TranslationDirection = 'en-to-pt' | 'pt-to-en';
 type Difficulty = 'easy' | 'medium' | 'hard';
 
 export const KnowledgePractice = () => {
-  const [mode, setMode] = useState<PracticeMode>('music-context');
-  const [direction, setDirection] = useState<TranslationDirection>('en-to-pt');
-  const [selectedModes, setSelectedModes] = useState<PracticeMode[]>(['music-context','new-context']);
-  const [selectedDirections, setSelectedDirections] = useState<TranslationDirection[]>(['en-to-pt','pt-to-en']);
+  const savedOptions = storage.getPracticeOptions() || {} as any;
+  const [mode, setMode] = useState<PracticeMode>(savedOptions.selectedModes?.[0] || 'music-context');
+  const [direction, setDirection] = useState<TranslationDirection>(savedOptions.direction || 'en-to-pt');
+  const [selectedModes, setSelectedModes] = useState<PracticeMode[]>(savedOptions.selectedModes || ['music-context', 'new-context']);
+  const [selectedDirections, setSelectedDirections] = useState<TranslationDirection[]>(savedOptions.selectedDirections || ['en-to-pt', 'pt-to-en']);
   const orchestrator = usePracticeOrchestrator();
   const [sessionRunning, setSessionRunning] = useState(false);
   const [currentCategory, setCurrentCategory] = useState<{ mode: string; direction: string } | null>(null);
-  const [difficulty, setDifficulty] = useState<Difficulty>('medium');
+  const [difficulty, setDifficulty] = useState<Difficulty>(savedOptions.difficulty || 'medium');
   const [currentPhrase, setCurrentPhrase] = useState<PracticePhrase | null>(null);
   const [currentCloze, setCurrentCloze] = useState<any | null>(null);
   const [currentScramble, setCurrentScramble] = useState<any | null>(null);
@@ -55,7 +56,7 @@ export const KnowledgePractice = () => {
 
   const [stats, setStats] = useState<PracticeStats>(loadStatsFromStorage());
   const [loading, setLoading] = useState(false);
-  const [selectedVideos, setSelectedVideos] = useState<string[]>([]);
+  const [selectedVideos, setSelectedVideos] = useState<string[]>(savedOptions.selectedVideos || []);
   const [availableVideos, setAvailableVideos] = useState<any[]>([]);
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [showVideoModal, setShowVideoModal] = useState(false);
@@ -70,12 +71,10 @@ export const KnowledgePractice = () => {
 
   useEffect(() => {
     (async () => {
-      if ((videoApi as any).getAvailableVideos) {
-        try {
-          const vids = await (videoApi as any).getAvailableVideos();
-          setAvailableVideos(vids || []);
-        } catch (e) { /* ignore */ }
-      }
+      try {
+        const response = await videoApi.listVideos();
+        setAvailableVideos(response.videos || []);
+      } catch (e) { /* ignore */ }
     })();
 
     const savedStats = storage.getPracticeStats();
@@ -88,6 +87,16 @@ export const KnowledgePractice = () => {
     const defaultPrompt = `Você é um professor de idiomas. Crie uma frase natural e completa em {source_lang} usando TODAS as seguintes palavras: {words}`;
     setCustomPrompt(defaultPrompt);
   }, []);
+
+  useEffect(() => {
+    storage.setPracticeOptions({
+      selectedModes,
+      direction,
+      selectedDirections,
+      difficulty,
+      selectedVideos,
+    });
+  }, [selectedModes, direction, selectedDirections, difficulty, selectedVideos]);
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -323,9 +332,10 @@ export const KnowledgePractice = () => {
 
           <div style={{ marginTop: 12 }}>
             <h3>Direção</h3>
-            <div className="small" id="directionDesc">{selectedDirections[0] === 'pt-to-en' ? 'Português → Inglês' : 'Inglês → Português'}</div>
+            <div className="small" id="directionDesc">{direction === 'pt-to-en' ? 'Português → Inglês' : 'Inglês → Português'}</div>
             <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-              <button id="dirConfirm" className="ghost" onClick={() => alert('Direção confirmada')}>Confirmar direção</button>
+              <button className={`ghost ${direction === 'en-to-pt' ? 'active' : ''}`} onClick={() => { setDirection('en-to-pt'); setSelectedDirections(['en-to-pt']); }}>EN → PT</button>
+              <button className={`ghost ${direction === 'pt-to-en' ? 'active' : ''}`} onClick={() => { setDirection('pt-to-en'); setSelectedDirections(['pt-to-en']); }}>PT → EN</button>
             </div>
           </div>
 
@@ -371,8 +381,18 @@ export const KnowledgePractice = () => {
                   <div className="small">Tempo</div>
                   <div style={{ fontWeight: 800 }} id="questionTimer">00:30</div>
                 </div>
-                <button id="playAudio" className="btn ghost" onClick={() => alert('Tocar áudio (exemplo)')}>🔊</button>
-                <button id="showHint" className="btn secondary" onClick={() => alert('Dica: pense no verbo certo')}>💡 Dica</button>
+                <button id="playAudio" className="btn ghost" onClick={() => {
+                  if (currentPhrase && currentPhrase.original) {
+                    const utterance = new SpeechSynthesisUtterance(currentPhrase.original);
+                    utterance.lang = currentPhrase.source_language || 'en-US';
+                    window.speechSynthesis.speak(utterance);
+                  }
+                }}>🔊</button>
+                <button id="showHint" className="btn secondary" onClick={() => {
+                  if (currentPhrase && currentPhrase.translated) {
+                    alert(`Dica (Tradução): ${currentPhrase.translated}`);
+                  }
+                }}>💡 Dica</button>
               </div>
             </div>
 
@@ -448,8 +468,7 @@ export const KnowledgePractice = () => {
               ))}
             </div>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
-              <button className="btn ghost" onClick={() => setShowVideoModal(false)}>Cancelar</button>
-              <button className="btn" onClick={() => { setShowVideoModal(false); alert('Vídeos salvos (exemplo)'); }}>Salvar</button>
+              <button className="btn" onClick={() => setShowVideoModal(false)}>Concluído</button>
             </div>
           </div>
         </div>

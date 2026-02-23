@@ -12,7 +12,16 @@ const STORAGE_KEYS = {
   USER_ID: 'user_id',
   USERNAME: 'username',
   REMEMBER_ME: 'remember_me',
+  PRACTICE_OPTIONS: 'practice_options',
 } as const;
+
+export interface PracticeOptions {
+  selectedModes: string[];
+  direction: string;
+  selectedDirections: string[];
+  difficulty: string;
+  selectedVideos: string[];
+}
 
 export const storage = {
   getGeminiApiKey: (): string | null => {
@@ -137,6 +146,24 @@ export const storage = {
   clearCurrentPhrase: (): void => {
     localStorage.removeItem(STORAGE_KEYS.CURRENT_PHRASE);
     localStorage.removeItem(STORAGE_KEYS.CURRENT_USER_ANSWER);
+  },
+
+  getPracticeOptions: (): PracticeOptions | null => {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEYS.PRACTICE_OPTIONS);
+      if (stored) return JSON.parse(stored);
+    } catch (error) {
+      console.error('Erro ao carregar opções de prática:', error);
+    }
+    return null;
+  },
+
+  setPracticeOptions: (options: PracticeOptions): void => {
+    try {
+      localStorage.setItem(STORAGE_KEYS.PRACTICE_OPTIONS, JSON.stringify(options));
+    } catch (error) {
+      console.error('Erro ao salvar opções de prática:', error);
+    }
   },
 
   // Autenticação

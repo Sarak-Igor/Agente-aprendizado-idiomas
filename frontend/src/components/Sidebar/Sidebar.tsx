@@ -17,7 +17,9 @@ export const Sidebar = ({ activeTab, onTabChange }: SidebarProps) => {
     { id: 'translate', label: 'Traduzir' },
     { id: 'videos', label: 'Meus Vídeos' },
     { id: 'practice', label: 'Treinar Inglês' },
+    { id: 'chat', label: 'Chat' },
     { id: 'agents', label: 'Especialistas' },
+    { id: 'mcp-factory', label: 'Fábrica MCP' },
     { id: 'api-keys', label: 'Modelos LLM' },
   ];
 

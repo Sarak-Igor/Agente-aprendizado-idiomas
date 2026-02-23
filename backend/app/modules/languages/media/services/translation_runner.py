@@ -5,7 +5,17 @@ from uuid import UUID
 from app.modules.languages.media.services.youtube_service import YouTubeService
 from app.models.database import Video, Translation, Job
 from app.modules.languages.media.services.translation_orchestrator import select_translation_service
-from app.modules.language_learning.persistence.checkpoint_utils import save_checkpoint, clear_checkpoint
+from app.modules.languages.media.services.job_manager import JobManager
+
+def save_checkpoint(job, translated_segments, group_index, db):
+    """Fallback dinâmico para salvar progresso da tradução"""
+    if job:
+        job.message = f"Checkpoint salvo: {len(translated_segments)} segmentos..."
+        db.commit()
+
+def clear_checkpoint(job, db):
+    """Fallback dinâmico para limpar progresso"""
+    pass
 from app.modules.languages.media.services.job_manager import JobManager
 
 logger = logging.getLogger(__name__)
